@@ -1,0 +1,91 @@
+# Mnemosyne
+
+Mnemosyne is an open-source, local-first notes application for iOS, macOS, Windows, and Android.
+
+The product goal is simple: your notes live as plain Markdown files in a folder you choose, stay fully usable offline, and sync securely across your personal devices when you sign in to the same account.
+
+## Principles
+
+- Local-first by default
+- Plain `.md` files in a user-owned folder
+- Offline-first behavior on every platform
+- End-to-end encrypted sync
+- Open-source application and self-hosted infrastructure
+- No operator access to note contents
+- No data lock-in
+
+## MVP Scope
+
+The initial release is intentionally narrow:
+
+- One user per account
+- Personal device sync only
+- Notes stored as normal Markdown files
+- Folders and subfolders are supported
+- External edits to Markdown files are detected and synced automatically
+- File create, edit, rename, move, and delete operations sync across devices
+- Deletes go to a synced trash
+- Notes sync with end-to-end encryption
+- Password loss does not allow service-side recovery of note contents
+- Recovery key setup is required for account recovery
+- Automatic background sync and manual sync are both available
+- App settings sync across devices
+- Local search is available on each device
+- Tags and wikilinks are supported inside note content
+- Backlinks and graph view are available locally
+
+## Out Of Scope For MVP
+
+- Shared notebooks
+- Collaboration
+- Attachments and binary file sync
+- Plugin system
+- Server-side note decryption
+- Operator recovery of user note contents
+- Version history beyond synced trash
+
+## Open Source Boundary
+
+This repository is intended to contain:
+
+- Client applications
+- Sync server
+- Sync protocol
+- AWS self-hosted deployment stack
+- Documentation
+
+This repository is not intended to contain:
+
+- Managed hosting billing systems
+- Managed hosting internal control plane
+- Managed service operational glue that is not required for self-hosting
+
+## Self-Hosted Deployment
+
+The self-hosted path is designed for a single person deploying a personal sync service on AWS.
+
+MVP assumptions:
+
+- AWS is the only officially supported self-hosted target
+- The CloudFormation deployment creates a single-account service
+- The operator cannot decrypt note contents
+- The deployment should favor low cost and simplicity over high scale
+
+## Recommended Technical Direction
+
+The implementation direction captured in this repository is:
+
+- Client: Flutter for the shared app shell across desktop and mobile
+- Shared core: Rust for sync, filesystem state, and cryptography
+- Server: Go with a custom HTTPS API
+- AWS self-hosted stack: CloudFormation for a simple single-user deployment
+
+The architecture details and agent-facing implementation guidance live in:
+
+- `ARCHITECTURE.md`
+- `DEVELOPMENT.md`
+- `AGENT.md`
+
+## License
+
+GPL-3.0

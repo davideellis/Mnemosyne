@@ -1,0 +1,22 @@
+# General
+.DS_Store
+Thumbs.db
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub/
+build/
+
+# Rust
+target/
+
+# Go
+bin/
+dist/
+
+# IDE
+.idea/
+.vscode/
