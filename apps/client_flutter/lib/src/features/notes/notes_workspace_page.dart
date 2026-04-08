@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../widgets/status_chip.dart';
 import '../onboarding/onboarding_card.dart';
 import '../settings/settings_panel.dart';
+import 'app_state_repository.dart';
 import 'local_vault_repository.dart';
+import 'sync_api_client.dart';
+import 'sync_models.dart';
 import 'vault_models.dart';
 
 class NotesWorkspacePage extends StatefulWidget {
@@ -15,14 +20,29 @@ class NotesWorkspacePage extends StatefulWidget {
 
 class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   final LocalVaultRepository _repository = LocalVaultRepository();
+  final AppStateRepository _appStateRepository = AppStateRepository();
+  final SyncApiClient _syncApiClient = SyncApiClient();
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _editorController = TextEditingController();
+  final TextEditingController _apiBaseUrlController =
+      TextEditingController(text: 'http://127.0.0.1:8080');
+  final TextEditingController _vaultPathController = TextEditingController();
+  final TextEditingController _emailController =
+      TextEditingController(text: 'demo@mnemosyne.local');
+  final TextEditingController _passwordController =
+      TextEditingController(text: 'demo-password');
+  StreamSubscription<VaultSnapshot>? _vaultWatchSubscription;
 
   VaultSnapshot? _snapshot;
   VaultNote? _selectedNote;
+  SyncSession? _session;
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isSyncing = false;
+  bool _isAuthenticating = false;
   String? _statusLabel;
+  String _syncCursor = '';
+  String? _syncMessage;
   String _searchQuery = '';
 
   @override
@@ -35,13 +55,21 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
 
   @override
   void dispose() {
+    _vaultWatchSubscription?.cancel();
     _searchController.dispose();
     _editorController.dispose();
+    _apiBaseUrlController.dispose();
+    _vaultPathController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
   Future<void> _loadVault() async {
-    final snapshot = await _repository.loadInitialVault();
+    final persistedState = await _appStateRepository.load();
+    final snapshot = persistedState.vaultRootPath == null
+        ? await _repository.loadInitialVault()
+        : await _repository.loadVaultAtPath(persistedState.vaultRootPath!);
     final initialNote = snapshot.notes.isEmpty ? null : snapshot.notes.first;
     if (!mounted) {
       return;
@@ -50,10 +78,21 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     setState(() {
       _snapshot = snapshot;
       _selectedNote = initialNote;
+      _session = persistedState.session;
+      _syncCursor = persistedState.syncCursor ?? '';
+      _apiBaseUrlController.text =
+          persistedState.apiBaseUrl ?? _apiBaseUrlController.text;
+      _vaultPathController.text = snapshot.rootPath;
+      _emailController.text = persistedState.email ?? _emailController.text;
       _isLoading = false;
-      _statusLabel = 'Loaded locally';
+      _statusLabel =
+          persistedState.session == null ? 'Loaded locally' : 'Signed in';
+      _syncMessage = persistedState.session == null
+          ? 'Local vault ready.'
+          : 'Restored signed-in session for ${persistedState.session!.email}.';
       _editorController.text = initialNote?.markdown ?? '';
     });
+    _startWatchingVault(snapshot.rootPath);
   }
 
   Future<void> _saveSelectedNote() async {
@@ -88,11 +127,170 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
 
     setState(() {
       _snapshot = updatedSnapshot;
-      _selectedNote = updatedNote ?? (updatedSnapshot.notes.isEmpty ? null : updatedSnapshot.notes.first);
+      _selectedNote = updatedNote ??
+          (updatedSnapshot.notes.isEmpty ? null : updatedSnapshot.notes.first);
       _editorController.text = _selectedNote?.markdown ?? '';
       _statusLabel = 'Saved locally';
       _isSaving = false;
     });
+    await _persistState();
+  }
+
+  Future<void> _openVaultFromInput() async {
+    final selectedPath = _vaultPathController.text.trim();
+    if (selectedPath.isEmpty) {
+      setState(() {
+        _syncMessage = 'Enter a local vault path first.';
+        _statusLabel = 'Vault path required';
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _statusLabel = 'Opening vault';
+      _syncMessage = null;
+    });
+
+    final snapshot = await _repository.loadVaultAtPath(selectedPath);
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _replaceSnapshot(snapshot, statusLabel: 'Loaded locally');
+      _vaultPathController.text = snapshot.rootPath;
+      _isLoading = false;
+    });
+    await _persistState();
+    await _startWatchingVault(snapshot.rootPath);
+  }
+
+  Future<void> _bootstrapAccount() async {
+    await _authenticate(bootstrap: true);
+  }
+
+  Future<void> _login() async {
+    await _authenticate(bootstrap: false);
+  }
+
+  Future<void> _authenticate({required bool bootstrap}) async {
+    setState(() {
+      _isAuthenticating = true;
+      _syncMessage = null;
+      _statusLabel = bootstrap ? 'Creating account' : 'Signing in';
+    });
+
+    try {
+      final baseUri = _parseBaseUri();
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
+
+      final session = bootstrap
+          ? await _syncApiClient.bootstrapAccount(
+              baseUri: baseUri,
+              email: email,
+              password: password,
+              deviceName: 'Windows Desktop',
+              platform: 'windows',
+            )
+          : await _syncApiClient.login(
+              baseUri: baseUri,
+              email: email,
+              password: password,
+            );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _session = session;
+        _statusLabel = 'Signed in';
+        _syncMessage =
+            '${bootstrap ? 'Created' : 'Loaded'} account ${session.email}';
+      });
+      await _persistState();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _syncMessage = error.toString();
+        _statusLabel = 'Auth failed';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAuthenticating = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _syncVault() async {
+    final snapshot = _snapshot;
+    final session = _session;
+    if (snapshot == null || session == null) {
+      setState(() {
+        _syncMessage = 'Sign in before syncing.';
+        _statusLabel = 'Sync unavailable';
+      });
+      return;
+    }
+
+    setState(() {
+      _isSyncing = true;
+      _statusLabel = 'Syncing';
+      _syncMessage = null;
+    });
+
+    try {
+      final result = await _syncApiClient.syncVault(
+        baseUri: _parseBaseUri(),
+        session: session,
+        notes: snapshot.notes,
+        cursor: _syncCursor,
+        deviceName: 'Windows Desktop',
+        platform: 'windows',
+      );
+
+      final refreshedSnapshot = result.pulledChanges.isEmpty
+          ? snapshot
+          : await _repository.applyRemoteChanges(
+              rootPath: snapshot.rootPath,
+              changes: result.pulledChanges,
+            );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _replaceSnapshot(
+          refreshedSnapshot,
+          statusLabel: 'Up to date',
+        );
+        _syncCursor = result.cursor;
+        _syncMessage =
+            'Pushed ${result.pushedCount} notes, pulled ${result.pulledCount} changes.';
+      });
+      await _persistState();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _statusLabel = 'Sync failed';
+        _syncMessage = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSyncing = false;
+        });
+      }
+    }
   }
 
   void _handleSearchChange() {
@@ -123,6 +321,75 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     });
   }
 
+  Uri _parseBaseUri() {
+    final raw = _apiBaseUrlController.text.trim();
+    final parsed = Uri.tryParse(raw);
+    if (parsed == null || !parsed.hasScheme || parsed.host.isEmpty) {
+      throw Exception('Enter a valid sync API URL.');
+    }
+    return parsed;
+  }
+
+  Future<void> _persistState() {
+    final snapshot = _snapshot;
+    return _appStateRepository.save(
+      PersistedAppState(
+        apiBaseUrl: _apiBaseUrlController.text.trim(),
+        email: _emailController.text.trim(),
+        session: _session,
+        syncCursor: _syncCursor,
+        vaultRootPath: snapshot?.rootPath,
+      ),
+    );
+  }
+
+  Future<void> _startWatchingVault(String rootPath) async {
+    await _vaultWatchSubscription?.cancel();
+    var isFirstEvent = true;
+    _vaultWatchSubscription =
+        _repository.watchVault(rootPath).listen((snapshot) {
+      if (!mounted) {
+        return;
+      }
+      if (isFirstEvent) {
+        isFirstEvent = false;
+        return;
+      }
+
+      setState(() {
+        _replaceSnapshot(snapshot, statusLabel: 'Detected local change');
+      });
+    });
+  }
+
+  void _replaceSnapshot(
+    VaultSnapshot snapshot, {
+    String? statusLabel,
+  }) {
+    final previousNote = _selectedNote;
+    VaultNote? matchingNote;
+    if (previousNote != null) {
+      for (final note in snapshot.notes) {
+        if (note.objectId == previousNote.objectId) {
+          matchingNote = note;
+          break;
+        }
+      }
+    }
+    final nextSelectedNote =
+        matchingNote ?? (snapshot.notes.isEmpty ? null : snapshot.notes.first);
+    final shouldPreserveEditor =
+        previousNote != null && _editorController.text != previousNote.markdown;
+
+    _snapshot = snapshot;
+    _selectedNote = nextSelectedNote;
+    _vaultPathController.text = snapshot.rootPath;
+    if (!shouldPreserveEditor) {
+      _editorController.text = nextSelectedNote?.markdown ?? '';
+    }
+    _statusLabel = statusLabel ?? _statusLabel;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -130,7 +397,9 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     final notes = _filteredNotes(snapshot?.notes ?? const []);
     final selectedNote = _selectedNote;
     final selectedFolders = snapshot?.folders ?? const <String>[];
-    final statusLabel = _isLoading ? 'Opening vault' : (_statusLabel ?? 'Up to date');
+    final statusLabel = _isLoading
+        ? 'Opening vault'
+        : (_statusLabel ?? (_session == null ? 'Local only' : 'Up to date'));
 
     return Scaffold(
       body: SafeArea(
@@ -162,6 +431,20 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                         ),
                         const SizedBox(height: 8),
                         Text(snapshot?.rootPath ?? ''),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _vaultPathController,
+                          decoration: const InputDecoration(
+                            labelText: 'Vault path',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        FilledButton.tonalIcon(
+                          onPressed: _openVaultFromInput,
+                          icon: const Icon(Icons.folder_open),
+                          label: const Text('Open vault'),
+                        ),
                         const SizedBox(height: 20),
                         Text(
                           'Folders',
@@ -178,13 +461,23 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                   dense: true,
                                   contentPadding: EdgeInsets.zero,
                                   title: Text(folder),
-                                  leading: const Icon(Icons.folder_open_outlined),
+                                  leading:
+                                      const Icon(Icons.folder_open_outlined),
                                 ),
                             ],
                           ),
                         ),
                         const SizedBox(height: 12),
-                        const OnboardingCard(),
+                        OnboardingCard(
+                          apiBaseUrlController: _apiBaseUrlController,
+                          emailController: _emailController,
+                          passwordController: _passwordController,
+                          session: _session,
+                          syncMessage: _syncMessage,
+                          isAuthenticating: _isAuthenticating,
+                          onBootstrap: _bootstrapAccount,
+                          onLogin: _login,
+                        ),
                       ],
                     ),
                   ),
@@ -213,8 +506,19 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                               const SizedBox(width: 12),
                               FilledButton.icon(
                                 onPressed: _isSaving ? null : _saveSelectedNote,
-                                icon: Icon(_isSaving ? Icons.sync : Icons.save_outlined),
+                                icon: Icon(_isSaving
+                                    ? Icons.sync
+                                    : Icons.save_outlined),
                                 label: Text(_isSaving ? 'Saving' : 'Save'),
+                              ),
+                              const SizedBox(width: 12),
+                              FilledButton.tonalIcon(
+                                onPressed: _isSyncing ? null : _syncVault,
+                                icon: Icon(_isSyncing
+                                    ? Icons.sync
+                                    : Icons.cloud_upload_outlined),
+                                label:
+                                    Text(_isSyncing ? 'Syncing' : 'Sync now'),
                               ),
                             ],
                           ),
@@ -395,8 +699,7 @@ class _EditorPane extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    for (final tag in note!.tags)
-                      Chip(label: Text('#$tag')),
+                    for (final tag in note!.tags) Chip(label: Text('#$tag')),
                     for (final link in note!.wikilinks)
                       Chip(
                         avatar: const Icon(Icons.link, size: 16),

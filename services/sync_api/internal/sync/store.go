@@ -32,6 +32,14 @@ type MemoryStore struct {
 	trashObjectIDs map[string]bool
 }
 
+func sessionTokenForCount(count int) string {
+	return fmt.Sprintf("session_%d", count)
+}
+
+func restoreChangeID(count int) string {
+	return fmt.Sprintf("restore_%d", count)
+}
+
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		sessions:       map[string]string{},
@@ -74,7 +82,7 @@ func (s *MemoryStore) Login(req LoginRequest) (AuthSession, error) {
 		return AuthSession{}, ErrInvalidCredentials
 	}
 
-	sessionToken := fmt.Sprintf("session_%d", len(s.sessions)+1)
+	sessionToken := sessionTokenForCount(len(s.sessions) + 1)
 	s.sessions[sessionToken] = s.account.AccountID
 
 	return AuthSession{
@@ -170,7 +178,7 @@ func (s *MemoryStore) RestoreTrash(req RestoreTrashRequest) (SyncChange, error) 
 	}
 
 	change := SyncChange{
-		ChangeID:          fmt.Sprintf("restore_%d", len(s.changes)+1),
+		ChangeID:          restoreChangeID(len(s.changes) + 1),
 		ObjectID:          req.ObjectID,
 		Kind:              "note",
 		Operation:         "restore",

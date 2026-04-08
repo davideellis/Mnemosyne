@@ -1,0 +1,47 @@
+class SyncSession {
+  const SyncSession({
+    required this.accountId,
+    required this.sessionToken,
+    required this.email,
+  });
+
+  final String accountId;
+  final String sessionToken;
+  final String email;
+}
+
+class RemoteNoteChange {
+  const RemoteNoteChange({
+    required this.changeId,
+    required this.objectId,
+    required this.operation,
+    required this.relativePath,
+    required this.title,
+    required this.markdown,
+    required this.tags,
+    required this.wikilinks,
+  });
+
+  final String changeId;
+  final String objectId;
+  final String operation;
+  final String relativePath;
+  final String title;
+  final String markdown;
+  final List<String> tags;
+  final List<String> wikilinks;
+}
+
+class SyncResult {
+  const SyncResult({
+    required this.cursor,
+    required this.pushedCount,
+    required this.pulledCount,
+    required this.pulledChanges,
+  });
+
+  final String cursor;
+  final int pushedCount;
+  final int pulledCount;
+  final List<RemoteNoteChange> pulledChanges;
+}

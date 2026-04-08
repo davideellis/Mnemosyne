@@ -1,0 +1,91 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:path/path.dart' as path;
+
+import 'sync_models.dart';
+
+class PersistedAppState {
+  const PersistedAppState({
+    this.apiBaseUrl,
+    this.email,
+    this.session,
+    this.syncCursor,
+    this.vaultRootPath,
+  });
+
+  final String? apiBaseUrl;
+  final String? email;
+  final SyncSession? session;
+  final String? syncCursor;
+  final String? vaultRootPath;
+
+  Map<String, dynamic> toJson() {
+    final sessionValue = session;
+    return <String, dynamic>{
+      'apiBaseUrl': apiBaseUrl,
+      'email': email,
+      'syncCursor': syncCursor,
+      'vaultRootPath': vaultRootPath,
+      'session': sessionValue == null
+          ? null
+          : <String, dynamic>{
+              'accountId': sessionValue.accountId,
+              'sessionToken': sessionValue.sessionToken,
+              'email': sessionValue.email,
+            },
+    };
+  }
+
+  factory PersistedAppState.fromJson(Map<String, dynamic> json) {
+    final sessionJson = json['session'] as Map<String, dynamic>?;
+    return PersistedAppState(
+      apiBaseUrl: json['apiBaseUrl'] as String?,
+      email: json['email'] as String?,
+      syncCursor: json['syncCursor'] as String?,
+      vaultRootPath: json['vaultRootPath'] as String?,
+      session: sessionJson == null
+          ? null
+          : SyncSession(
+              accountId: sessionJson['accountId'] as String,
+              sessionToken: sessionJson['sessionToken'] as String,
+              email: sessionJson['email'] as String,
+            ),
+    );
+  }
+}
+
+class AppStateRepository {
+  AppStateRepository({String? filePath}) : _filePath = filePath;
+
+  final String? _filePath;
+
+  Future<PersistedAppState> load() async {
+    final file = await _stateFile();
+    if (!await file.exists()) {
+      return const PersistedAppState();
+    }
+
+    final raw = await file.readAsString();
+    final json = jsonDecode(raw) as Map<String, dynamic>;
+    return PersistedAppState.fromJson(json);
+  }
+
+  Future<void> save(PersistedAppState state) async {
+    final file = await _stateFile();
+    await file.parent.create(recursive: true);
+    await file.writeAsString(
+      const JsonEncoder.withIndent('  ').convert(state.toJson()),
+    );
+  }
+
+  Future<File> _stateFile() async {
+    if (_filePath != null) {
+      return File(_filePath);
+    }
+    final home = Platform.environment['USERPROFILE'] ??
+        Platform.environment['HOME'] ??
+        Directory.systemTemp.path;
+    return File(path.join(home, '.mnemosyne', 'app_state.json'));
+  }
+}

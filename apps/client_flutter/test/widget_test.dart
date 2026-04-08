@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mnemosyne/src/app.dart';
 
@@ -11,5 +11,6 @@ void main() {
 
     expect(find.byType(MnemosyneApp), findsOneWidget);
     expect(find.byType(WidgetsApp), findsOneWidget);
+    expect(find.byType(Scaffold), findsOneWidget);
   });
 }

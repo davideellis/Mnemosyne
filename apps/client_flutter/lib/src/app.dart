@@ -24,4 +24,3 @@ class MnemosyneApp extends StatelessWidget {
     );
   }
 }
-

@@ -1,13 +1,24 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as path;
 
+import 'sync_models.dart';
 import 'vault_models.dart';
 
 class LocalVaultRepository {
   Future<VaultSnapshot> loadInitialVault() async {
-    final root = Directory(path.join(Directory.systemTemp.path, 'MnemosyneDemoVault'));
+    final root =
+        Directory(path.join(Directory.systemTemp.path, 'MnemosyneDemoVault'));
     await _seedDemoVault(root);
+    return _loadVault(root);
+  }
+
+  Future<VaultSnapshot> loadVaultAtPath(String rootPath) async {
+    final root = Directory(rootPath);
+    if (!await root.exists()) {
+      await root.create(recursive: true);
+    }
     return _loadVault(root);
   }
 
@@ -22,10 +33,56 @@ class LocalVaultRepository {
     return _loadVault(Directory(rootPath));
   }
 
+  Future<VaultSnapshot> applyRemoteChanges({
+    required String rootPath,
+    required List<RemoteNoteChange> changes,
+  }) async {
+    final root = Directory(rootPath);
+
+    for (final change in changes) {
+      if (change.relativePath.isEmpty) {
+        continue;
+      }
+
+      final notePath = _resolveVaultPath(root.path, change.relativePath);
+      if (notePath == null) {
+        continue;
+      }
+
+      final file = File(notePath);
+      switch (change.operation) {
+        case 'trash':
+          if (await file.exists()) {
+            await file.delete();
+          }
+          break;
+        case 'upsert':
+        case 'restore':
+        default:
+          await file.create(recursive: true);
+          await file.writeAsString(change.markdown);
+          break;
+      }
+    }
+
+    return _loadVault(root);
+  }
+
+  Stream<VaultSnapshot> watchVault(String rootPath) async* {
+    final root = Directory(rootPath);
+    yield await _loadVault(root);
+
+    await for (final _ in root.watch(recursive: true)) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      yield await _loadVault(root);
+    }
+  }
+
   Future<VaultSnapshot> _loadVault(Directory root) async {
     final files = await root
         .list(recursive: true)
-        .where((entity) => entity is File && entity.path.toLowerCase().endsWith('.md'))
+        .where((entity) =>
+            entity is File && entity.path.toLowerCase().endsWith('.md'))
         .cast<File>()
         .toList();
 
@@ -60,7 +117,8 @@ class LocalVaultRepository {
     final aliases = <String, String>{};
     for (final note in draftNotes) {
       aliases[_normalize(note.title)] = note.objectId;
-      aliases[_normalize(path.basenameWithoutExtension(note.relativePath))] = note.objectId;
+      aliases[_normalize(path.basenameWithoutExtension(note.relativePath))] =
+          note.objectId;
       aliases[_normalize(note.relativePath)] = note.objectId;
     }
 
@@ -84,7 +142,8 @@ class LocalVaultRepository {
             markdown: note.markdown,
             tags: note.tags,
             wikilinks: note.wikilinks,
-            backlinks: List<String>.unmodifiable(backlinksById[note.objectId] ?? const []),
+            backlinks: List<String>.unmodifiable(
+                backlinksById[note.objectId] ?? const []),
           ),
         )
         .toList(growable: false);
@@ -158,7 +217,8 @@ Reference [[Roadmap]] when documenting setup.
   }
 
   static List<String> _extractTags(String markdown) {
-    final matches = RegExp(r'(^|\s)#([A-Za-z0-9_-]+)', multiLine: true).allMatches(markdown);
+    final matches = RegExp(r'(^|\s)#([A-Za-z0-9_-]+)', multiLine: true)
+        .allMatches(markdown);
     final tags = <String>{};
     for (final match in matches) {
       final value = match.group(2);
@@ -170,7 +230,8 @@ Reference [[Roadmap]] when documenting setup.
   }
 
   static List<String> _extractWikilinks(String markdown) {
-    final matches = RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]').allMatches(markdown);
+    final matches = RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]')
+        .allMatches(markdown);
     final links = <String>[];
     for (final match in matches) {
       final value = match.group(1)?.trim();
@@ -183,6 +244,14 @@ Reference [[Roadmap]] when documenting setup.
 
   static String _normalize(String value) {
     return value.trim().toLowerCase().replaceAll('\\', '/');
+  }
+
+  static String? _resolveVaultPath(String rootPath, String relativePath) {
+    final normalized = path.normalize(relativePath);
+    if (path.isAbsolute(normalized) || normalized.startsWith('..')) {
+      return null;
+    }
+    return path.join(rootPath, normalized);
   }
 }
 
