@@ -1,7 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../notes/vault_models.dart';
+
 class SettingsPanel extends StatelessWidget {
-  const SettingsPanel({super.key});
+  const SettingsPanel({
+    required this.note,
+    required this.noteCount,
+    super.key,
+  });
+
+  final VaultNote? note;
+  final int noteCount;
 
   @override
   Widget build(BuildContext context) {
@@ -19,6 +28,11 @@ class SettingsPanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
+          _SettingTile(
+            title: 'Notes',
+            subtitle: '$noteCount local Markdown files',
+            icon: Icons.description_outlined,
+          ),
           const _SettingTile(
             title: 'Theme',
             subtitle: 'System',
@@ -44,6 +58,40 @@ class SettingsPanel extends StatelessWidget {
             subtitle: 'Synced across devices',
             icon: Icons.delete_outline,
           ),
+          if (note != null) ...[
+            const SizedBox(height: 24),
+            Text(
+              'Selected Note',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _SettingTile(
+              title: 'Path',
+              subtitle: note!.relativePath,
+              icon: Icons.folder_outlined,
+            ),
+            _SettingTile(
+              title: 'Tags',
+              subtitle: note!.tags.isEmpty ? 'None yet' : note!.tags.join(', '),
+              icon: Icons.sell_outlined,
+            ),
+            _SettingTile(
+              title: 'Wikilinks',
+              subtitle: note!.wikilinks.isEmpty
+                  ? 'No outgoing links'
+                  : note!.wikilinks.join(', '),
+              icon: Icons.link_outlined,
+            ),
+            _SettingTile(
+              title: 'Backlinks',
+              subtitle: note!.backlinks.isEmpty
+                  ? 'No backlinks yet'
+                  : note!.backlinks.join(', '),
+              icon: Icons.call_split_outlined,
+            ),
+          ],
         ],
       ),
     );
@@ -73,4 +121,3 @@ class _SettingTile extends StatelessWidget {
     );
   }
 }
-
