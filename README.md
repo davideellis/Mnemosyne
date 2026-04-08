@@ -95,6 +95,15 @@ The architecture details and agent-facing implementation guidance live in:
 - `DEVELOPMENT.md`
 - `AGENT.md`
 
+## Repository Status
+
+The repository now includes first-pass implementation scaffolding for:
+
+- a Flutter client shell
+- a Rust core domain crate
+- a Go sync API skeleton
+- an AWS CloudFormation deployment template for the single-user self-hosted path
+
 ## License
 
 GPL-3.0
