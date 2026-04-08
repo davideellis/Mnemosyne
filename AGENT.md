@@ -53,7 +53,7 @@ Unless a later maintainer explicitly changes direction, assume:
 
 ## Documentation Style
 
-- `README.me` is for human readers
+- `README.md` is for human readers
 - `ARCHITECTURE.md`, `DEVELOPMENT.md`, and `AGENT.md` are implementation-facing
 - Keep public docs free of promises not yet implemented
 - State sharp edges clearly, especially recovery-key loss and sync conflict rules
