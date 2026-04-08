@@ -9,6 +9,7 @@ class PersistedAppState {
   const PersistedAppState({
     this.apiBaseUrl,
     this.email,
+    this.knownNoteDigests = const <String, String>{},
     this.session,
     this.syncCursor,
     this.vaultRootPath,
@@ -16,6 +17,7 @@ class PersistedAppState {
 
   final String? apiBaseUrl;
   final String? email;
+  final Map<String, String> knownNoteDigests;
   final SyncSession? session;
   final String? syncCursor;
   final String? vaultRootPath;
@@ -25,6 +27,7 @@ class PersistedAppState {
     return <String, dynamic>{
       'apiBaseUrl': apiBaseUrl,
       'email': email,
+      'knownNoteDigests': knownNoteDigests,
       'syncCursor': syncCursor,
       'vaultRootPath': vaultRootPath,
       'session': sessionValue == null
@@ -39,9 +42,15 @@ class PersistedAppState {
 
   factory PersistedAppState.fromJson(Map<String, dynamic> json) {
     final sessionJson = json['session'] as Map<String, dynamic>?;
+    final digestJson = json['knownNoteDigests'] as Map<String, dynamic>?;
     return PersistedAppState(
       apiBaseUrl: json['apiBaseUrl'] as String?,
       email: json['email'] as String?,
+      knownNoteDigests: digestJson == null
+          ? const <String, String>{}
+          : digestJson.map(
+              (key, value) => MapEntry(key, value as String),
+            ),
       syncCursor: json['syncCursor'] as String?,
       vaultRootPath: json['vaultRootPath'] as String?,
       session: sessionJson == null

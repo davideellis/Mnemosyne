@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:mnemosyne/src/features/notes/sync_api_client.dart';
 import 'package:mnemosyne/src/features/notes/sync_models.dart';
-import 'package:mnemosyne/src/features/notes/vault_models.dart';
 
 void main() {
   test('bootstrapAccount returns a sync session', () async {
@@ -87,15 +86,15 @@ void main() {
         sessionToken: 'session_bootstrap',
         email: 'demo@mnemosyne.local',
       ),
-      notes: const <VaultNote>[
-        VaultNote(
+      changes: const <SyncPushChange>[
+        SyncPushChange(
           objectId: 'note-1',
+          operation: 'upsert',
           title: 'Welcome',
           relativePath: 'Journal/welcome.md',
           markdown: '# Welcome',
           tags: <String>['journal'],
           wikilinks: <String>['Roadmap'],
-          backlinks: <String>[],
         ),
       ],
       cursor: '',

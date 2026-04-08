@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as path;
 
 import 'sync_models.dart';
@@ -30,6 +32,39 @@ class LocalVaultRepository {
     final file = File(path.join(rootPath, note.relativePath));
     await file.create(recursive: true);
     await file.writeAsString(markdown);
+    return _loadVault(Directory(rootPath));
+  }
+
+  Future<VaultSnapshot> createNote({
+    required String rootPath,
+    required String relativePath,
+    required String title,
+  }) async {
+    final notePath = _resolveVaultPath(rootPath, relativePath);
+    if (notePath == null) {
+      throw Exception('Enter a valid vault-relative Markdown path.');
+    }
+
+    final normalizedPath =
+        notePath.toLowerCase().endsWith('.md') ? notePath : '$notePath.md';
+    final file = File(normalizedPath);
+    if (await file.exists()) {
+      throw Exception('A note already exists at that path.');
+    }
+
+    await file.create(recursive: true);
+    await file.writeAsString('# $title\n');
+    return _loadVault(Directory(rootPath));
+  }
+
+  Future<VaultSnapshot> deleteNote({
+    required String rootPath,
+    required VaultNote note,
+  }) async {
+    final file = File(path.join(rootPath, note.relativePath));
+    if (await file.exists()) {
+      await file.delete();
+    }
     return _loadVault(Directory(rootPath));
   }
 
@@ -92,7 +127,8 @@ class LocalVaultRepository {
     final draftNotes = <_DraftNote>[];
 
     for (final file in files) {
-      final relativePath = path.relative(file.path, from: root.path);
+      final relativePath =
+          path.relative(file.path, from: root.path).replaceAll('\\', '/');
       final markdown = await file.readAsString();
       final title = _deriveTitle(relativePath, markdown);
       final tags = _extractTags(markdown);
@@ -244,6 +280,12 @@ Reference [[Roadmap]] when documenting setup.
 
   static String _normalize(String value) {
     return value.trim().toLowerCase().replaceAll('\\', '/');
+  }
+
+  static String noteDigest(VaultNote note) {
+    return sha256
+        .convert(utf8.encode('${note.relativePath}\n${note.markdown}'))
+        .toString();
   }
 
   static String? _resolveVaultPath(String rootPath, String relativePath) {

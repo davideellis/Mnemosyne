@@ -10,6 +10,7 @@ void main() {
     const state = PersistedAppState(
       apiBaseUrl: 'http://127.0.0.1:8080',
       email: 'demo@mnemosyne.local',
+      knownNoteDigests: <String, String>{'Journal/welcome.md': 'digest-1'},
       syncCursor: 'cursor-1',
       vaultRootPath: '/tmp/MnemosyneDemoVault',
       session: SyncSession(
@@ -25,6 +26,7 @@ void main() {
 
     expect(restored.apiBaseUrl, state.apiBaseUrl);
     expect(restored.email, state.email);
+    expect(restored.knownNoteDigests['Journal/welcome.md'], 'digest-1');
     expect(restored.syncCursor, state.syncCursor);
     expect(restored.vaultRootPath, state.vaultRootPath);
     expect(restored.session?.sessionToken, state.session?.sessionToken);

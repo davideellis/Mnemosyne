@@ -70,4 +70,66 @@ void main() {
     expect(snapshot.notes, isEmpty);
     expect(snapshot.folders, isEmpty);
   });
+
+  test('createNote creates a markdown file at the requested relative path',
+      () async {
+    final repository = LocalVaultRepository();
+    final root =
+        await Directory.systemTemp.createTemp('mnemosyne_create_vault');
+    addTearDown(() async {
+      if (await root.exists()) {
+        await root.delete(recursive: true);
+      }
+    });
+
+    final snapshot = await repository.createNote(
+      rootPath: root.path,
+      relativePath: 'Journal/new-note',
+      title: 'New Note',
+    );
+
+    expect(snapshot.notes, hasLength(1));
+    expect(snapshot.notes.first.relativePath, 'Journal/new-note.md');
+    expect(snapshot.notes.first.markdown, startsWith('# New Note'));
+  });
+
+  test('deleteNote removes the selected markdown file', () async {
+    final repository = LocalVaultRepository();
+    final root =
+        await Directory.systemTemp.createTemp('mnemosyne_delete_vault');
+    addTearDown(() async {
+      if (await root.exists()) {
+        await root.delete(recursive: true);
+      }
+    });
+
+    final snapshot = await repository.applyRemoteChanges(
+      rootPath: root.path,
+      changes: const <RemoteNoteChange>[
+        RemoteNoteChange(
+          changeId: 'change-delete',
+          objectId: 'Journal/delete-me.md',
+          operation: 'upsert',
+          relativePath: 'Journal/delete-me.md',
+          title: 'Delete Me',
+          markdown: '# Delete Me',
+          tags: <String>[],
+          wikilinks: <String>[],
+        ),
+      ],
+    );
+    final note = snapshot.notes.first;
+
+    final updatedSnapshot = await repository.deleteNote(
+      rootPath: snapshot.rootPath,
+      note: note,
+    );
+
+    expect(updatedSnapshot.notes.length, snapshot.notes.length - 1);
+    expect(
+      updatedSnapshot.notes
+          .where((candidate) => candidate.objectId == note.objectId),
+      isEmpty,
+    );
+  });
 }

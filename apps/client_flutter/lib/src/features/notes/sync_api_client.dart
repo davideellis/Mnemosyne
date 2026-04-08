@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'sync_models.dart';
-import 'vault_models.dart';
 
 class SyncApiClient {
   SyncApiClient({
@@ -70,7 +69,7 @@ class SyncApiClient {
   Future<SyncResult> syncVault({
     required Uri baseUri,
     required SyncSession session,
-    required List<VaultNote> notes,
+    required List<SyncPushChange> changes,
     required String cursor,
     required String deviceName,
     required String platform,
@@ -81,8 +80,8 @@ class SyncApiClient {
       <String, dynamic>{
         'sessionToken': session.sessionToken,
         'cursor': cursor,
-        'changes': notes
-            .map((note) => _encodeNoteChange(note, deviceName, platform))
+        'changes': changes
+            .map((change) => _encodeNoteChange(change, deviceName, platform))
             .toList(),
       },
     );
@@ -100,16 +99,16 @@ class SyncApiClient {
     );
 
     final pullBody = _decodeJson(pullResponse);
-    final changes = (pullBody['changes'] as List<dynamic>? ?? const [])
+    final pulledChanges = (pullBody['changes'] as List<dynamic>? ?? const [])
         .whereType<Map>()
         .map(
             (change) => _decodeRemoteNoteChange(change.cast<String, dynamic>()))
         .toList(growable: false);
     return SyncResult(
       cursor: (pullBody['cursor'] as String?) ?? nextCursor,
-      pushedCount: notes.length,
-      pulledCount: changes.length,
-      pulledChanges: changes,
+      pushedCount: changes.length,
+      pulledCount: pulledChanges.length,
+      pulledChanges: pulledChanges,
     );
   }
 
@@ -136,28 +135,28 @@ class SyncApiClient {
   }
 
   Map<String, dynamic> _encodeNoteChange(
-    VaultNote note,
+    SyncPushChange change,
     String deviceName,
     String platform,
   ) {
     final timestamp = DateTime.now().toUtc().toIso8601String();
     final metadata = <String, dynamic>{
-      'title': note.title,
-      'relativePath': note.relativePath,
-      'tags': note.tags,
-      'wikilinks': note.wikilinks,
+      'title': change.title,
+      'relativePath': change.relativePath,
+      'tags': change.tags,
+      'wikilinks': change.wikilinks,
     };
 
     // Placeholder transport envelopes for early integration work.
     return <String, dynamic>{
-      'changeId': '${note.objectId}:$timestamp',
-      'objectId': note.objectId,
+      'changeId': '${change.objectId}:$timestamp:${change.operation}',
+      'objectId': change.objectId,
       'kind': 'note',
-      'operation': 'upsert',
+      'operation': change.operation,
       'logicalTimestamp': timestamp,
       'originDeviceId': _deviceId(deviceName, platform),
       'encryptedMetadata': _opaqueEnvelope(jsonEncode(metadata)),
-      'encryptedPayload': _opaqueEnvelope(note.markdown),
+      'encryptedPayload': _opaqueEnvelope(change.markdown),
     };
   }
 

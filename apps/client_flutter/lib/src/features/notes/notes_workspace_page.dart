@@ -37,10 +37,13 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   VaultNote? _selectedNote;
   SyncSession? _session;
   bool _isLoading = true;
+  bool _isCreating = false;
   bool _isSaving = false;
+  bool _isDeleting = false;
   bool _isSyncing = false;
   bool _isAuthenticating = false;
   String? _statusLabel;
+  Map<String, String> _knownNoteDigests = <String, String>{};
   String _syncCursor = '';
   String? _syncMessage;
   String _searchQuery = '';
@@ -79,6 +82,9 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       _snapshot = snapshot;
       _selectedNote = initialNote;
       _session = persistedState.session;
+      _knownNoteDigests = Map<String, String>.from(
+        persistedState.knownNoteDigests,
+      );
       _syncCursor = persistedState.syncCursor ?? '';
       _apiBaseUrlController.text =
           persistedState.apiBaseUrl ?? _apiBaseUrlController.text;
@@ -132,6 +138,82 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       _editorController.text = _selectedNote?.markdown ?? '';
       _statusLabel = 'Saved locally';
       _isSaving = false;
+    });
+    await _persistState();
+  }
+
+  Future<void> _createNote() async {
+    final snapshot = _snapshot;
+    if (snapshot == null) {
+      return;
+    }
+
+    final draft = await showDialog<_NewNoteDraft>(
+      context: context,
+      builder: (context) => const _NewNoteDialog(),
+    );
+    if (draft == null) {
+      return;
+    }
+
+    setState(() {
+      _isCreating = true;
+      _statusLabel = 'Creating note';
+      _syncMessage = null;
+    });
+
+    try {
+      final updatedSnapshot = await _repository.createNote(
+        rootPath: snapshot.rootPath,
+        relativePath: draft.relativePath,
+        title: draft.title,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _replaceSnapshot(updatedSnapshot, statusLabel: 'Created locally');
+        _isCreating = false;
+      });
+      await _persistState();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isCreating = false;
+        _statusLabel = 'Create failed';
+        _syncMessage = error.toString();
+      });
+    }
+  }
+
+  Future<void> _deleteSelectedNote() async {
+    final snapshot = _snapshot;
+    final note = _selectedNote;
+    if (snapshot == null || note == null) {
+      return;
+    }
+
+    setState(() {
+      _isDeleting = true;
+      _statusLabel = 'Deleting locally';
+    });
+
+    final updatedSnapshot = await _repository.deleteNote(
+      rootPath: snapshot.rootPath,
+      note: note,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _replaceSnapshot(updatedSnapshot, statusLabel: 'Deleted locally');
+      _isDeleting = false;
     });
     await _persistState();
   }
@@ -249,7 +331,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       final result = await _syncApiClient.syncVault(
         baseUri: _parseBaseUri(),
         session: session,
-        notes: snapshot.notes,
+        changes: _buildSyncChanges(snapshot),
         cursor: _syncCursor,
         deviceName: 'Windows Desktop',
         platform: 'windows',
@@ -271,6 +353,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
           refreshedSnapshot,
           statusLabel: 'Up to date',
         );
+        _knownNoteDigests = _buildKnownDigests(refreshedSnapshot);
         _syncCursor = result.cursor;
         _syncMessage =
             'Pushed ${result.pushedCount} notes, pulled ${result.pulledCount} changes.';
@@ -337,6 +420,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         apiBaseUrl: _apiBaseUrlController.text.trim(),
         email: _emailController.text.trim(),
         session: _session,
+        knownNoteDigests: _knownNoteDigests,
         syncCursor: _syncCursor,
         vaultRootPath: snapshot?.rootPath,
       ),
@@ -388,6 +472,57 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       _editorController.text = nextSelectedNote?.markdown ?? '';
     }
     _statusLabel = statusLabel ?? _statusLabel;
+  }
+
+  List<SyncPushChange> _buildSyncChanges(VaultSnapshot snapshot) {
+    final nextDigests = _buildKnownDigests(snapshot);
+    final changes = <SyncPushChange>[];
+
+    for (final note in snapshot.notes) {
+      final nextDigest = nextDigests[note.objectId];
+      final knownDigest = _knownNoteDigests[note.objectId];
+      if (nextDigest == null || nextDigest == knownDigest) {
+        continue;
+      }
+      changes.add(
+        SyncPushChange(
+          objectId: note.objectId,
+          operation: 'upsert',
+          relativePath: note.relativePath,
+          title: note.title,
+          markdown: note.markdown,
+          tags: note.tags,
+          wikilinks: note.wikilinks,
+        ),
+      );
+    }
+
+    for (final objectId in _knownNoteDigests.keys) {
+      if (nextDigests.containsKey(objectId)) {
+        continue;
+      }
+
+      changes.add(
+        SyncPushChange(
+          objectId: objectId,
+          operation: 'trash',
+          relativePath: objectId,
+          title: objectId,
+          markdown: '',
+          tags: const <String>[],
+          wikilinks: const <String>[],
+        ),
+      );
+    }
+
+    return changes;
+  }
+
+  Map<String, String> _buildKnownDigests(VaultSnapshot snapshot) {
+    return <String, String>{
+      for (final note in snapshot.notes)
+        note.objectId: LocalVaultRepository.noteDigest(note),
+    };
   }
 
   @override
@@ -505,11 +640,34 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                               ),
                               const SizedBox(width: 12),
                               FilledButton.icon(
+                                onPressed: _isCreating ? null : _createNote,
+                                icon: Icon(
+                                  _isCreating
+                                      ? Icons.sync
+                                      : Icons.note_add_outlined,
+                                ),
+                                label:
+                                    Text(_isCreating ? 'Creating' : 'New note'),
+                              ),
+                              const SizedBox(width: 12),
+                              FilledButton.icon(
                                 onPressed: _isSaving ? null : _saveSelectedNote,
                                 icon: Icon(_isSaving
                                     ? Icons.sync
                                     : Icons.save_outlined),
                                 label: Text(_isSaving ? 'Saving' : 'Save'),
+                              ),
+                              const SizedBox(width: 12),
+                              FilledButton.tonalIcon(
+                                onPressed:
+                                    _isDeleting ? null : _deleteSelectedNote,
+                                icon: Icon(
+                                  _isDeleting
+                                      ? Icons.sync
+                                      : Icons.delete_outline,
+                                ),
+                                label:
+                                    Text(_isDeleting ? 'Deleting' : 'Delete'),
                               ),
                               const SizedBox(width: 12),
                               FilledButton.tonalIcon(
@@ -569,6 +727,8 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                     width: 320,
                                     child: SettingsPanel(
                                       note: selectedNote,
+                                      notes: snapshot?.notes ??
+                                          const <VaultNote>[],
                                       noteCount: snapshot?.notes.length ?? 0,
                                     ),
                                   ),
@@ -601,6 +761,86 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       ].join('\n').toLowerCase();
       return haystack.contains(_searchQuery);
     }).toList(growable: false);
+  }
+}
+
+class _NewNoteDraft {
+  const _NewNoteDraft({
+    required this.title,
+    required this.relativePath,
+  });
+
+  final String title;
+  final String relativePath;
+}
+
+class _NewNoteDialog extends StatefulWidget {
+  const _NewNoteDialog();
+
+  @override
+  State<_NewNoteDialog> createState() => _NewNoteDialogState();
+}
+
+class _NewNoteDialogState extends State<_NewNoteDialog> {
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _pathController = TextEditingController();
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _pathController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Create note'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _titleController,
+            decoration: const InputDecoration(
+              labelText: 'Title',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _pathController,
+            decoration: const InputDecoration(
+              labelText: 'Vault path',
+              hintText: 'Journal/new-note.md',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final title = _titleController.text.trim();
+            final relativePath = _pathController.text.trim();
+            if (title.isEmpty || relativePath.isEmpty) {
+              return;
+            }
+
+            Navigator.of(context).pop(
+              _NewNoteDraft(
+                title: title,
+                relativePath: relativePath,
+              ),
+            );
+          },
+          child: const Text('Create'),
+        ),
+      ],
+    );
   }
 }
 

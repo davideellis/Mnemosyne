@@ -10,6 +10,26 @@ class SyncSession {
   final String email;
 }
 
+class SyncPushChange {
+  const SyncPushChange({
+    required this.objectId,
+    required this.operation,
+    required this.relativePath,
+    required this.title,
+    required this.markdown,
+    required this.tags,
+    required this.wikilinks,
+  });
+
+  final String objectId;
+  final String operation;
+  final String relativePath;
+  final String title;
+  final String markdown;
+  final List<String> tags;
+  final List<String> wikilinks;
+}
+
 class RemoteNoteChange {
   const RemoteNoteChange({
     required this.changeId,
