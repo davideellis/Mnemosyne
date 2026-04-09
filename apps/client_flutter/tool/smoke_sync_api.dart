@@ -14,6 +14,7 @@ Future<void> main(List<String> args) async {
   final settingsSync = options.containsKey('settings-sync');
   final startApproval = options.containsKey('start-approval');
   final consumeApproval = options.containsKey('consume-approval');
+  final listDevices = options.containsKey('list-devices');
   final approvalCode = options['approval-code'] ?? 'ABCD-EFGH-IJKL';
 
   if (baseUrl == null || email == null || password == null) {
@@ -43,6 +44,23 @@ Future<void> main(List<String> args) async {
     stdout.writeln('Approval started.');
     stdout.writeln('Code: $approvalCode');
     stdout.writeln('Expires at: $expiresAt');
+    return;
+  }
+
+  if (listDevices) {
+    final session = await client.login(
+      baseUri: baseUri,
+      email: email,
+      password: password,
+    );
+    final devices = await client.listDevices(
+      baseUri: baseUri,
+      session: session,
+    );
+    stdout.writeln('Devices: ${devices.length}');
+    for (final device in devices) {
+      stdout.writeln('- ${device.deviceName} (${device.platform})');
+    }
     return;
   }
 

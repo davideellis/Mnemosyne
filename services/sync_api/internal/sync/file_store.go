@@ -150,6 +150,21 @@ func (s *FileStore) RegisterDevice(req DeviceRegistrationRequest) (Device, error
 	return req.Device, nil
 }
 
+func (s *FileStore) ListDevices(req DeviceListRequest) ([]Device, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.state.Sessions[req.SessionToken]; !ok || s.state.Account == nil {
+		return nil, ErrInvalidSession
+	}
+
+	devices := make([]Device, 0, len(s.state.Account.Devices))
+	for _, device := range s.state.Account.Devices {
+		devices = append(devices, device)
+	}
+	return devices, nil
+}
+
 func (s *FileStore) StartDeviceApproval(
 	req DeviceApprovalStartRequest,
 ) (DeviceApproval, error) {

@@ -140,6 +140,21 @@ func (s *MemoryStore) RegisterDevice(req DeviceRegistrationRequest) (Device, err
 	return req.Device, nil
 }
 
+func (s *MemoryStore) ListDevices(req DeviceListRequest) ([]Device, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.sessions[req.SessionToken]; !ok || s.account == nil {
+		return nil, ErrInvalidSession
+	}
+
+	devices := make([]Device, 0, len(s.account.Devices))
+	for _, device := range s.account.Devices {
+		devices = append(devices, device)
+	}
+	return devices, nil
+}
+
 func (s *MemoryStore) StartDeviceApproval(
 	req DeviceApprovalStartRequest,
 ) (DeviceApproval, error) {

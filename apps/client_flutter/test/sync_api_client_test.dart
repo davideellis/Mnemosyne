@@ -194,6 +194,50 @@ void main() {
     expect(approvedSession.wrappedMasterKeyForApproval, isNotEmpty);
   });
 
+  test('listDevices returns registered devices for the session', () async {
+    final client = SyncApiClient(
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/v1/devices/list');
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'devices': <dynamic>[
+              <String, dynamic>{
+                'deviceId': 'device-1',
+                'deviceName': 'Windows Desktop',
+                'platform': 'windows',
+              },
+              <String, dynamic>{
+                'deviceId': 'device-2',
+                'deviceName': 'Mac Desktop',
+                'platform': 'macos',
+              },
+            ],
+          }),
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    final devices = await client.listDevices(
+      baseUri: Uri.parse('http://127.0.0.1:8080'),
+      session: const SyncSession(
+        accountId: 'acct_local',
+        sessionToken: 'session_bootstrap',
+        email: 'demo@mnemosyne.local',
+        encryptedMasterKeyForPassword: '',
+        encryptedMasterKeyForRecovery: '',
+        wrappedMasterKeyForApproval: '',
+        masterKeyMaterial: '',
+        recoveryKeyHint: '',
+      ),
+    );
+
+    expect(devices, hasLength(2));
+    expect(devices.first.deviceName, 'Windows Desktop');
+    expect(devices.last.platform, 'macos');
+  });
+
   test('syncVault pushes notes then pulls decrypted updates', () async {
     final cryptoService = SyncCryptoService();
     final bootstrapMaterial = await cryptoService.createBootstrapMaterial(

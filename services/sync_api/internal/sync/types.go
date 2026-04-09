@@ -55,6 +55,10 @@ type DeviceApproval struct {
 	ExpiresAt        string `json:"expiresAt"`
 }
 
+type DeviceListRequest struct {
+	SessionToken string `json:"sessionToken"`
+}
+
 type SyncChange struct {
 	ChangeID          string `json:"changeId"`
 	ObjectID          string `json:"objectId"`

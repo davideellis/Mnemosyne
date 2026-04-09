@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../notes/sync_models.dart';
 import '../notes/vault_models.dart';
 import 'workspace_settings.dart';
 
@@ -13,6 +14,11 @@ class SettingsPanel extends StatelessWidget {
     required this.trashedNotes,
     required this.noteCount,
     required this.settings,
+    required this.syncStatus,
+    required this.lastSyncAttempt,
+    required this.lastSyncSuccess,
+    required this.lastSyncError,
+    required this.devices,
     required this.onSettingsChanged,
     super.key,
   });
@@ -23,6 +29,11 @@ class SettingsPanel extends StatelessWidget {
   final List<VaultNote> trashedNotes;
   final int noteCount;
   final WorkspaceSettings settings;
+  final String syncStatus;
+  final String lastSyncAttempt;
+  final String lastSyncSuccess;
+  final String? lastSyncError;
+  final List<RegisteredDevice> devices;
   final ValueChanged<WorkspaceSettings> onSettingsChanged;
 
   @override
@@ -67,6 +78,27 @@ class SettingsPanel extends StatelessWidget {
               settings.copyWith(autoSyncEnabled: value),
             ),
           ),
+          _SettingTile(
+            title: 'Sync Status',
+            subtitle: syncStatus,
+            icon: Icons.cloud_done_outlined,
+          ),
+          _SettingTile(
+            title: 'Last Attempt',
+            subtitle: lastSyncAttempt,
+            icon: Icons.schedule_outlined,
+          ),
+          _SettingTile(
+            title: 'Last Success',
+            subtitle: lastSyncSuccess,
+            icon: Icons.check_circle_outline,
+          ),
+          if (lastSyncError != null)
+            _SettingTile(
+              title: 'Last Error',
+              subtitle: lastSyncError!,
+              icon: Icons.error_outline,
+            ),
           _ToggleTile(
             title: 'Backlinks',
             subtitle: settings.backlinksEnabled ? 'Enabled' : 'Disabled',
@@ -96,6 +128,25 @@ class SettingsPanel extends StatelessWidget {
             subtitle: '${trashedNotes.length} in synced trash',
             icon: Icons.restore_from_trash_outlined,
           ),
+          _SettingTile(
+            title: 'Registered Devices',
+            subtitle:
+                devices.isEmpty ? 'No devices loaded' : '${devices.length} device(s)',
+            icon: Icons.devices_outlined,
+          ),
+          if (devices.isNotEmpty)
+            Card(
+              child: Column(
+                children: [
+                  for (final device in devices)
+                    ListTile(
+                      leading: const Icon(Icons.devices_outlined),
+                      title: Text(device.deviceName),
+                      subtitle: Text(device.platform),
+                    ),
+                ],
+              ),
+            ),
           if (note != null) ...[
             const SizedBox(height: 24),
             Text(

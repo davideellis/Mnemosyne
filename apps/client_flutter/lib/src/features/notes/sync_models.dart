@@ -108,3 +108,15 @@ class SyncResult {
   final int pulledCount;
   final List<RemoteSyncChange> pulledChanges;
 }
+
+class RegisteredDevice {
+  const RegisteredDevice({
+    required this.deviceId,
+    required this.deviceName,
+    required this.platform,
+  });
+
+  final String deviceId;
+  final String deviceName;
+  final String platform;
+}

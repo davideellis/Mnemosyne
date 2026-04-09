@@ -276,6 +276,30 @@ class SyncApiClient {
     );
   }
 
+  Future<List<RegisteredDevice>> listDevices({
+    required Uri baseUri,
+    required SyncSession session,
+  }) async {
+    final response = await _post(
+      baseUri,
+      '/v1/devices/list',
+      <String, dynamic>{
+        'sessionToken': session.sessionToken,
+      },
+    );
+    final body = _decodeJson(response);
+    return (body['devices'] as List<dynamic>? ?? const <dynamic>[])
+        .whereType<Map>()
+        .map(
+          (entry) => RegisteredDevice(
+            deviceId: entry['deviceId'] as String? ?? '',
+            deviceName: entry['deviceName'] as String? ?? '',
+            platform: entry['platform'] as String? ?? '',
+          ),
+        )
+        .toList(growable: false);
+  }
+
   Future<http.Response> _post(
       Uri baseUri, String path, Map<String, dynamic> payload) async {
     final response = await _httpClient.post(

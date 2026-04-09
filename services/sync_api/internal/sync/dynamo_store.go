@@ -148,6 +148,24 @@ func (s *DynamoStore) RegisterDevice(req DeviceRegistrationRequest) (Device, err
 	return req.Device, nil
 }
 
+func (s *DynamoStore) ListDevices(req DeviceListRequest) ([]Device, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.load(); err != nil {
+		return nil, err
+	}
+	if _, ok := s.state.Sessions[req.SessionToken]; !ok || s.state.Account == nil {
+		return nil, ErrInvalidSession
+	}
+
+	devices := make([]Device, 0, len(s.state.Account.Devices))
+	for _, device := range s.state.Account.Devices {
+		devices = append(devices, device)
+	}
+	return devices, nil
+}
+
 func (s *DynamoStore) StartDeviceApproval(
 	req DeviceApprovalStartRequest,
 ) (DeviceApproval, error) {

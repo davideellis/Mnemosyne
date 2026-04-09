@@ -58,6 +58,11 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   WorkspaceSettings _settings = const WorkspaceSettings();
   String _syncCursor = '';
   String? _syncMessage;
+  DateTime? _lastSyncAttemptAt;
+  DateTime? _lastSyncSuccessAt;
+  String? _lastSyncError;
+  int _autoSyncFailureCount = 0;
+  List<RegisteredDevice> _registeredDevices = const <RegisteredDevice>[];
   String _searchQuery = '';
 
   @override
@@ -117,6 +122,9 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       _editorController.text = initialNote?.markdown ?? '';
     });
     _startWatchingVault(snapshot.rootPath);
+    if (hydratedSession != null) {
+      unawaited(_refreshRegisteredDevices());
+    }
   }
 
   Future<SyncSession?> _hydrateSession(SyncSession? session) async {
@@ -421,6 +429,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         masterKeyMaterial: session.masterKeyMaterial,
       );
       await _persistState();
+      await _refreshRegisteredDevices();
     } catch (error) {
       if (!mounted) {
         return;
@@ -525,6 +534,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         masterKeyMaterial: session.masterKeyMaterial,
       );
       await _persistState();
+      await _refreshRegisteredDevices();
     } catch (error) {
       if (!mounted) {
         return;
@@ -588,6 +598,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         masterKeyMaterial: session.masterKeyMaterial,
       );
       await _persistState();
+      await _refreshRegisteredDevices();
       if (bootstrap && recoveryKey != null && mounted) {
         await _showRecoveryKeyDialog(recoveryKey);
       }
@@ -608,7 +619,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     }
   }
 
-  Future<void> _syncVault() async {
+  Future<void> _syncVault({bool automatic = false}) async {
     final snapshot = _snapshot;
     final session = _session;
     if (snapshot == null || session == null) {
@@ -623,6 +634,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       _isSyncing = true;
       _statusLabel = 'Syncing';
       _syncMessage = null;
+      _lastSyncAttemptAt = DateTime.now();
     });
 
     try {
@@ -659,18 +671,26 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         _settings = effectiveSettings;
         _knownSettingsDigest = effectiveSettings.digest();
         _syncCursor = result.cursor;
+        _lastSyncSuccessAt = DateTime.now();
+        _lastSyncError = null;
+        _autoSyncFailureCount = 0;
         _syncMessage =
             'Pushed ${result.pushedCount} changes, pulled ${result.pulledCount} changes.';
       });
       await _persistState();
+      await _refreshRegisteredDevices();
     } catch (error) {
       if (!mounted) {
         return;
       }
       setState(() {
         _statusLabel = 'Sync failed';
+        _lastSyncError = error.toString();
         _syncMessage = error.toString();
       });
+      if (automatic) {
+        _scheduleRetryAfterFailure();
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -945,8 +965,85 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       setState(() {
         _statusLabel = 'Queued auto sync';
       });
-      unawaited(_syncVault());
+      unawaited(_syncVault(automatic: true));
     });
+  }
+
+  Future<void> _refreshRegisteredDevices() async {
+    final session = _session;
+    if (session == null) {
+      return;
+    }
+
+    try {
+      final devices = await _syncApiClient.listDevices(
+        baseUri: _parseBaseUri(),
+        session: session,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _registeredDevices = devices;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _registeredDevices = const <RegisteredDevice>[];
+      });
+    }
+  }
+
+  void _scheduleRetryAfterFailure() {
+    if (_session == null || !_settings.autoSyncEnabled) {
+      return;
+    }
+
+    _autoSyncFailureCount += 1;
+    final delaySeconds = min(30, 2 * _autoSyncFailureCount);
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = Timer(Duration(seconds: delaySeconds), () {
+      if (!mounted || _isSyncing) {
+        return;
+      }
+      final snapshot = _snapshot;
+      if (snapshot == null || _buildSyncChanges(snapshot).isEmpty) {
+        return;
+      }
+      setState(() {
+        _statusLabel = 'Retrying sync';
+      });
+      unawaited(_syncVault(automatic: true));
+    });
+  }
+
+  String _syncStateSummary() {
+    if (_isSyncing) {
+      return 'Syncing now';
+    }
+    if (_lastSyncError != null) {
+      return 'Retrying after failure';
+    }
+    if (_lastSyncSuccessAt != null) {
+      return 'Up to date';
+    }
+    if (_session == null) {
+      return 'Local only';
+    }
+    return 'Ready to sync';
+  }
+
+  String _formatTimestamp(DateTime? value) {
+    if (value == null) {
+      return 'Never';
+    }
+    final local = value.toLocal();
+    final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final minute = local.minute.toString().padLeft(2, '0');
+    final suffix = local.hour >= 12 ? 'PM' : 'AM';
+    return '${local.month}/${local.day} $hour:$minute $suffix';
   }
 
   void _replaceSnapshot(
@@ -1346,7 +1443,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                               ? _restoreSelectedNote
                               : _deleteSelectedNote,
                           onCommandPalette: _openCommandPalette,
-                          onSync: _syncVault,
+                          onSync: () => _syncVault(),
                         ),
                           Expanded(
                             child: LayoutBuilder(
@@ -1394,6 +1491,13 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                             const <VaultNote>[],
                                         noteCount: snapshot?.notes.length ?? 0,
                                         settings: _settings,
+                                        syncStatus: _syncStateSummary(),
+                                        lastSyncAttempt:
+                                            _formatTimestamp(_lastSyncAttemptAt),
+                                        lastSyncSuccess:
+                                            _formatTimestamp(_lastSyncSuccessAt),
+                                        lastSyncError: _lastSyncError,
+                                        devices: _registeredDevices,
                                         onSettingsChanged: _updateSettings,
                                       ),
                                     ),
