@@ -178,4 +178,31 @@ void main() {
     expect(restoredSnapshot.trashedNotes, isEmpty);
     expect(restoredSnapshot.notes.first.objectId, 'Journal/restore-me.md');
   });
+
+  test('renameNote moves a note to a new relative path', () async {
+    final repository = LocalVaultRepository();
+    final root =
+        await Directory.systemTemp.createTemp('mnemosyne_rename_vault');
+    addTearDown(() async {
+      if (await root.exists()) {
+        await root.delete(recursive: true);
+      }
+    });
+
+    final initialSnapshot = await repository.createNote(
+      rootPath: root.path,
+      relativePath: 'Journal/original.md',
+      title: 'Original',
+    );
+
+    final renamedSnapshot = await repository.renameNote(
+      rootPath: root.path,
+      note: initialSnapshot.notes.first,
+      relativePath: 'Projects/renamed.md',
+    );
+
+    expect(renamedSnapshot.notes, hasLength(1));
+    expect(renamedSnapshot.notes.first.objectId, 'Projects/renamed.md');
+    expect(renamedSnapshot.folders, contains('Projects'));
+  });
 }

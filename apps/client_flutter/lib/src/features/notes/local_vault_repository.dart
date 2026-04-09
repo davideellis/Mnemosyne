@@ -57,6 +57,37 @@ class LocalVaultRepository {
     return _loadVault(Directory(rootPath));
   }
 
+  Future<VaultSnapshot> renameNote({
+    required String rootPath,
+    required VaultNote note,
+    required String relativePath,
+  }) async {
+    final sourceFile = File(path.join(rootPath, note.relativePath));
+    if (!await sourceFile.exists()) {
+      throw Exception('The selected note no longer exists.');
+    }
+
+    final nextPath = _resolveVaultPath(rootPath, relativePath);
+    if (nextPath == null) {
+      throw Exception('Enter a valid vault-relative Markdown path.');
+    }
+
+    final normalizedPath =
+        nextPath.toLowerCase().endsWith('.md') ? nextPath : '$nextPath.md';
+    if (path.normalize(sourceFile.path) == path.normalize(normalizedPath)) {
+      return _loadVault(Directory(rootPath));
+    }
+
+    final targetFile = File(normalizedPath);
+    if (await targetFile.exists()) {
+      throw Exception('A note already exists at that path.');
+    }
+
+    await targetFile.parent.create(recursive: true);
+    await sourceFile.rename(targetFile.path);
+    return _loadVault(Directory(rootPath));
+  }
+
   Future<VaultSnapshot> deleteNote({
     required String rootPath,
     required VaultNote note,

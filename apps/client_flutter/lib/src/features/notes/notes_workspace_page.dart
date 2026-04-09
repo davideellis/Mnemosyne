@@ -41,6 +41,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   SyncSession? _session;
   bool _isLoading = true;
   bool _isCreating = false;
+  bool _isRenaming = false;
   bool _isSaving = false;
   bool _isDeleting = false;
   bool _isSyncing = false;
@@ -187,6 +188,61 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       setState(() {
         _isCreating = false;
         _statusLabel = 'Create failed';
+        _syncMessage = error.toString();
+      });
+    }
+  }
+
+  Future<void> _renameSelectedNote() async {
+    final snapshot = _snapshot;
+    final note = _selectedNote;
+    if (snapshot == null || note == null || _selectedNoteIsTrashed) {
+      return;
+    }
+
+    final draft = await showDialog<_RenameNoteDraft>(
+      context: context,
+      builder: (context) => _RenameNoteDialog(note: note),
+    );
+    if (draft == null) {
+      return;
+    }
+
+    setState(() {
+      _isRenaming = true;
+      _statusLabel = 'Renaming note';
+      _syncMessage = null;
+    });
+
+    try {
+      final updatedSnapshot = await _repository.renameNote(
+        rootPath: snapshot.rootPath,
+        note: note,
+        relativePath: draft.relativePath,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _replaceSnapshot(
+          updatedSnapshot,
+          statusLabel: 'Renamed locally',
+          preferredObjectId: _normalizeRelativePath(draft.relativePath),
+          preferTrashed: false,
+        );
+        _isRenaming = false;
+      });
+      await _persistState();
+      _scheduleAutoSync();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isRenaming = false;
+        _statusLabel = 'Rename failed';
         _syncMessage = error.toString();
       });
     }
@@ -481,6 +537,13 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       ).join();
     });
     return groups.join('-');
+  }
+
+  String _normalizeRelativePath(String relativePath) {
+    final normalized = relativePath.replaceAll('\\', '/');
+    return normalized.toLowerCase().endsWith('.md')
+        ? normalized
+        : '$normalized.md';
   }
 
   Future<void> _showRecoveryKeyDialog(String recoveryKey) {
@@ -841,11 +904,13 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                         _TopBar(
                           searchController: _searchController,
                           isCreating: _isCreating,
+                          isRenaming: _isRenaming,
                           isSaving: _isSaving,
                           isDeleting: _isDeleting,
                           isSyncing: _isSyncing,
                           selectedNoteIsTrashed: _selectedNoteIsTrashed,
                           onCreate: _createNote,
+                          onRename: _renameSelectedNote,
                           onSave: _saveSelectedNote,
                           onDeleteOrRestore: _selectedNoteIsTrashed
                               ? _restoreSelectedNote
@@ -938,6 +1003,14 @@ class _NewNoteDraft {
   final String relativePath;
 }
 
+class _RenameNoteDraft {
+  const _RenameNoteDraft({
+    required this.relativePath,
+  });
+
+  final String relativePath;
+}
+
 class _NewNoteDialog extends StatefulWidget {
   const _NewNoteDialog();
 
@@ -1004,15 +1077,76 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
   }
 }
 
+class _RenameNoteDialog extends StatefulWidget {
+  const _RenameNoteDialog({
+    required this.note,
+  });
+
+  final VaultNote note;
+
+  @override
+  State<_RenameNoteDialog> createState() => _RenameNoteDialogState();
+}
+
+class _RenameNoteDialogState extends State<_RenameNoteDialog> {
+  late final TextEditingController _pathController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pathController = TextEditingController(text: widget.note.relativePath);
+  }
+
+  @override
+  void dispose() {
+    _pathController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Rename or move note'),
+      content: TextField(
+        controller: _pathController,
+        decoration: const InputDecoration(
+          labelText: 'Vault path',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final relativePath = _pathController.text.trim();
+            if (relativePath.isEmpty) {
+              return;
+            }
+            Navigator.of(context).pop(
+              _RenameNoteDraft(relativePath: relativePath),
+            );
+          },
+          child: const Text('Apply'),
+        ),
+      ],
+    );
+  }
+}
+
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.searchController,
     required this.isCreating,
+    required this.isRenaming,
     required this.isSaving,
     required this.isDeleting,
     required this.isSyncing,
     required this.selectedNoteIsTrashed,
     required this.onCreate,
+    required this.onRename,
     required this.onSave,
     required this.onDeleteOrRestore,
     required this.onSync,
@@ -1020,11 +1154,13 @@ class _TopBar extends StatelessWidget {
 
   final TextEditingController searchController;
   final bool isCreating;
+  final bool isRenaming;
   final bool isSaving;
   final bool isDeleting;
   final bool isSyncing;
   final bool selectedNoteIsTrashed;
   final VoidCallback onCreate;
+  final VoidCallback onRename;
   final VoidCallback onSave;
   final VoidCallback onDeleteOrRestore;
   final VoidCallback onSync;
@@ -1050,6 +1186,13 @@ class _TopBar extends StatelessWidget {
             onPressed: isCreating ? null : onCreate,
             icon: Icon(isCreating ? Icons.sync : Icons.note_add_outlined),
             label: Text(isCreating ? 'Creating' : 'New note'),
+          ),
+          const SizedBox(width: 12),
+          FilledButton.tonalIcon(
+            onPressed: isRenaming || selectedNoteIsTrashed ? null : onRename,
+            icon:
+                Icon(isRenaming ? Icons.sync : Icons.drive_file_rename_outline),
+            label: Text(isRenaming ? 'Renaming' : 'Rename'),
           ),
           const SizedBox(width: 12),
           FilledButton.icon(

@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/davideellis/Mnemosyne/services/sync_api/internal/api"
-	"github.com/davideellis/Mnemosyne/services/sync_api/internal/sync"
+	"github.com/davideellis/Mnemosyne/services/sync_api/internal/runtime"
 )
 
 func main() {
 	addr := envOrDefault("MNEMOSYNE_HTTP_ADDR", ":8080")
-	store, err := buildStore()
+	store, err := runtime.BuildStore()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -28,15 +28,6 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
-}
-
-func buildStore() (api.Store, error) {
-	if filePath := os.Getenv("MNEMOSYNE_STATE_FILE"); filePath != "" {
-		log.Printf("using persistent sync state file at %s", filePath)
-		return sync.NewFileStore(filePath)
-	}
-
-	return sync.NewMemoryStore(), nil
 }
 
 func envOrDefault(key string, fallback string) string {

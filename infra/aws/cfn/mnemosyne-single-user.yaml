@@ -14,6 +14,12 @@ Parameters:
       - "true"
       - "false"
     Default: "false"
+  LambdaArtifactBucket:
+    Type: String
+    Description: S3 bucket containing the packaged sync API Lambda artifact zip.
+  LambdaArtifactKey:
+    Type: String
+    Description: S3 key for the packaged sync API Lambda artifact zip.
 
 Conditions:
   HostedBootstrapEnabled: !Equals [!Ref EnableHostedBootstrap, "true"]
@@ -87,27 +93,21 @@ Resources:
     Properties:
       FunctionName: !Sub "${ServiceName}-sync-api"
       Runtime: provided.al2023
+      Architectures:
+        - arm64
       Handler: bootstrap
       Role: !GetAtt SyncApiRole.Arn
       MemorySize: 512
       Timeout: 15
       Environment:
         Variables:
-          MNEMOSYNE_S3_BUCKET: !Ref NotesBucket
           MNEMOSYNE_DDB_TABLE: !Ref MetadataTable
           MNEMOSYNE_BOOTSTRAP_EMAIL: !Ref BootstrapEmail
           MNEMOSYNE_ENABLE_HOSTED_BOOTSTRAP: !Ref EnableHostedBootstrap
+          MNEMOSYNE_AWS_MODE: lambda
       Code:
-        ZipFile: |
-          exports.handler = async function() {
-            return {
-              statusCode: 501,
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                message: "Replace this placeholder with the built Go Lambda artifact before deployment."
-              })
-            };
-          };
+        S3Bucket: !Ref LambdaArtifactBucket
+        S3Key: !Ref LambdaArtifactKey
 
   HttpApi:
     Type: AWS::ApiGatewayV2::Api
@@ -154,4 +154,3 @@ Outputs:
     Value: !Ref MetadataTable
   BootstrapMode:
     Value: !If [HostedBootstrapEnabled, "hosted-style", "single-account local-admin"]
-
