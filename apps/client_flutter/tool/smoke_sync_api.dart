@@ -15,6 +15,7 @@ Future<void> main(List<String> args) async {
   final startApproval = options.containsKey('start-approval');
   final consumeApproval = options.containsKey('consume-approval');
   final listDevices = options.containsKey('list-devices');
+  final logout = options.containsKey('logout');
   final approvalCode = options['approval-code'] ?? 'ABCD-EFGH-IJKL';
 
   if (baseUrl == null || email == null || password == null) {
@@ -61,6 +62,20 @@ Future<void> main(List<String> args) async {
     for (final device in devices) {
       stdout.writeln('- ${device.deviceName} (${device.platform})');
     }
+    return;
+  }
+
+  if (logout) {
+    final session = await client.login(
+      baseUri: baseUri,
+      email: email,
+      password: password,
+    );
+    await client.logout(
+      baseUri: baseUri,
+      session: session,
+    );
+    stdout.writeln('Logout completed.');
     return;
   }
 

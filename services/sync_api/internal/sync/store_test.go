@@ -158,3 +158,32 @@ func TestMemoryStoreConsumesDeviceApproval(t *testing.T) {
 		t.Fatalf("expected wrapped approval key in session, got %q", approvedSession.WrappedMasterKeyForApproval)
 	}
 }
+
+func TestMemoryStoreLogoutInvalidatesSession(t *testing.T) {
+	store := NewMemoryStore()
+
+	session, err := store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	if err := store.Logout(LogoutRequest{SessionToken: session.SessionToken}); err != nil {
+		t.Fatalf("logout: %v", err)
+	}
+
+	_, err = store.Pull(SyncPullRequest{SessionToken: session.SessionToken})
+	if err == nil {
+		t.Fatal("expected logged-out session to be rejected")
+	}
+}

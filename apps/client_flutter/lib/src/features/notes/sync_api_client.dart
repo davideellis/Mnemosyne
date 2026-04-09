@@ -105,6 +105,19 @@ class SyncApiClient {
     );
   }
 
+  Future<void> logout({
+    required Uri baseUri,
+    required SyncSession session,
+  }) async {
+    await _post(
+      baseUri,
+      '/v1/auth/logout',
+      <String, dynamic>{
+        'sessionToken': session.sessionToken,
+      },
+    );
+  }
+
   Future<SyncSession> recover({
     required Uri baseUri,
     required String email,

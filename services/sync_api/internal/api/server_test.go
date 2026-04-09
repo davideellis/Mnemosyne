@@ -160,6 +160,36 @@ func TestListDevices(t *testing.T) {
 	}
 }
 
+func TestLogout(t *testing.T) {
+	store := sync.NewMemoryStore()
+	server := NewServer(store)
+
+	session, err := store.Bootstrap(sync.AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: sync.Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := newJSONRequest(t, http.MethodPost, "/v1/auth/logout", sync.LogoutRequest{
+		SessionToken: session.SessionToken,
+	})
+	server.Routes().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+}
+
 func TestPushThenPull(t *testing.T) {
 	store := sync.NewMemoryStore()
 	server := NewServer(store)

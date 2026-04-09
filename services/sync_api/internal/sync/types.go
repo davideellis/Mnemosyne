@@ -21,6 +21,10 @@ type LoginRequest struct {
 	PasswordVerifier string `json:"passwordVerifier"`
 }
 
+type LogoutRequest struct {
+	SessionToken string `json:"sessionToken"`
+}
+
 type RecoveryRequest struct {
 	Email            string `json:"email"`
 	RecoveryVerifier string `json:"recoveryVerifier"`

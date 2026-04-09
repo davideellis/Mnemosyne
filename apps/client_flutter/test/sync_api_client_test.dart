@@ -80,6 +80,35 @@ void main() {
     expect(session.masterKeyMaterial, bootstrapMaterial.masterKeyMaterial);
   });
 
+  test('logout posts the current session token', () async {
+    final client = SyncApiClient(
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/v1/auth/logout');
+        final payload = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(payload['sessionToken'], 'session_login');
+        return http.Response(
+          jsonEncode(<String, dynamic>{'status': 'ok'}),
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    await client.logout(
+      baseUri: Uri.parse('http://127.0.0.1:8080'),
+      session: const SyncSession(
+        accountId: 'acct_local',
+        sessionToken: 'session_login',
+        email: 'demo@mnemosyne.local',
+        encryptedMasterKeyForPassword: '',
+        encryptedMasterKeyForRecovery: '',
+        wrappedMasterKeyForApproval: '',
+        masterKeyMaterial: '',
+        recoveryKeyHint: '',
+      ),
+    );
+  });
+
   test('recover unwraps a persisted master key from the recovery response', () async {
     final cryptoService = SyncCryptoService();
     final bootstrapMaterial = await cryptoService.createBootstrapMaterial(

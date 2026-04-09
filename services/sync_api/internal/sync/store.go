@@ -129,6 +129,17 @@ func (s *MemoryStore) Login(req LoginRequest) (AuthSession, error) {
 	return authSessionForAccount(sessionToken, s.account), nil
 }
 
+func (s *MemoryStore) Logout(req LogoutRequest) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.sessions[req.SessionToken]; !ok {
+		return ErrInvalidSession
+	}
+	delete(s.sessions, req.SessionToken)
+	return nil
+}
+
 func (s *MemoryStore) RegisterDevice(req DeviceRegistrationRequest) (Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

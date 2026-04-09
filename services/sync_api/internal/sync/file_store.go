@@ -134,6 +134,17 @@ func (s *FileStore) Login(req LoginRequest) (AuthSession, error) {
 	return authSessionForAccount(sessionToken, s.state.Account), nil
 }
 
+func (s *FileStore) Logout(req LogoutRequest) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.state.Sessions[req.SessionToken]; !ok {
+		return ErrInvalidSession
+	}
+	delete(s.state.Sessions, req.SessionToken)
+	return s.save()
+}
+
 func (s *FileStore) RegisterDevice(req DeviceRegistrationRequest) (Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

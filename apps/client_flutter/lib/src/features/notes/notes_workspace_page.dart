@@ -555,6 +555,14 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   Future<void> _signOut() async {
     final session = _session;
     if (session != null) {
+      try {
+        await _syncApiClient.logout(
+          baseUri: _parseBaseUri(),
+          session: session,
+        );
+      } catch (_) {
+        // Local sign-out should still complete if the remote session is already gone.
+      }
       await _secureKeyRepository.deleteMasterKey(session.accountId);
     }
 

@@ -129,6 +129,20 @@ func (s *DynamoStore) Login(req LoginRequest) (AuthSession, error) {
 	return authSessionForAccount(sessionToken, s.state.Account), nil
 }
 
+func (s *DynamoStore) Logout(req LogoutRequest) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.load(); err != nil {
+		return err
+	}
+	if _, ok := s.state.Sessions[req.SessionToken]; !ok {
+		return ErrInvalidSession
+	}
+	delete(s.state.Sessions, req.SessionToken)
+	return s.save()
+}
+
 func (s *DynamoStore) RegisterDevice(req DeviceRegistrationRequest) (Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
