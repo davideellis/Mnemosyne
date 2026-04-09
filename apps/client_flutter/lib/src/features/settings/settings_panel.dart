@@ -15,6 +15,7 @@ class SettingsPanel extends StatelessWidget {
     required this.noteCount,
     required this.settings,
     required this.syncStatus,
+    required this.pendingSyncChanges,
     required this.lastSyncAttempt,
     required this.lastSyncSuccess,
     required this.lastSyncError,
@@ -30,6 +31,7 @@ class SettingsPanel extends StatelessWidget {
   final int noteCount;
   final WorkspaceSettings settings;
   final String syncStatus;
+  final int pendingSyncChanges;
   final String lastSyncAttempt;
   final String lastSyncSuccess;
   final String? lastSyncError;
@@ -69,9 +71,8 @@ class SettingsPanel extends StatelessWidget {
           ),
           _ToggleTile(
             title: 'Sync',
-            subtitle: settings.autoSyncEnabled
-                ? 'Automatic + manual'
-                : 'Manual only',
+            subtitle:
+                settings.autoSyncEnabled ? 'Automatic + manual' : 'Manual only',
             icon: Icons.sync_outlined,
             value: settings.autoSyncEnabled,
             onChanged: (value) => onSettingsChanged(
@@ -82,6 +83,13 @@ class SettingsPanel extends StatelessWidget {
             title: 'Sync Status',
             subtitle: syncStatus,
             icon: Icons.cloud_done_outlined,
+          ),
+          _SettingTile(
+            title: 'Pending Changes',
+            subtitle: pendingSyncChanges == 0
+                ? 'No local changes waiting'
+                : '$pendingSyncChanges change(s) waiting to sync',
+            icon: Icons.cloud_upload_outlined,
           ),
           _SettingTile(
             title: 'Last Attempt',
@@ -130,8 +138,9 @@ class SettingsPanel extends StatelessWidget {
           ),
           _SettingTile(
             title: 'Registered Devices',
-            subtitle:
-                devices.isEmpty ? 'No devices loaded' : '${devices.length} device(s)',
+            subtitle: devices.isEmpty
+                ? 'No devices loaded'
+                : '${devices.length} device(s)',
             icon: Icons.devices_outlined,
           ),
           if (devices.isNotEmpty)

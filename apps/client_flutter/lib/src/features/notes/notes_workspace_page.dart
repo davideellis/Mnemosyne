@@ -1369,6 +1369,8 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     final trashedNotes = _filteredNotes(snapshot?.trashedNotes ?? const []);
     final selectedNote = _selectedNote;
     final selectedFolders = snapshot?.folders ?? const <String>[];
+    final pendingSyncChanges =
+        snapshot == null ? 0 : _buildSyncChanges(snapshot).length;
     final statusLabel = _isLoading
         ? 'Opening vault'
         : (_statusLabel ?? (_session == null ? 'Local only' : 'Up to date'));
@@ -1640,6 +1642,8 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                                 snapshot?.notes.length ?? 0,
                                             settings: _settings,
                                             syncStatus: _syncStateSummary(),
+                                            pendingSyncChanges:
+                                                pendingSyncChanges,
                                             lastSyncAttempt: _formatTimestamp(
                                                 _lastSyncAttemptAt),
                                             lastSyncSuccess: _formatTimestamp(
