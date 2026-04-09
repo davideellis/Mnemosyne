@@ -5,6 +5,19 @@ import 'package:http/http.dart' as http;
 import 'sync_crypto_service.dart';
 import 'sync_models.dart';
 
+class SyncApiException implements Exception {
+  const SyncApiException({
+    required this.statusCode,
+    required this.message,
+  });
+
+  final int statusCode;
+  final String message;
+
+  @override
+  String toString() => 'HTTP $statusCode: $message';
+}
+
 class SyncApiClient {
   SyncApiClient({
     http.Client? httpClient,
@@ -276,7 +289,8 @@ class SyncApiClient {
     for (final change in (pullBody['changes'] as List<dynamic>? ?? const [])) {
       if (change is Map) {
         pulledChanges.add(
-          await _decodeRemoteNoteChange(session, change.cast<String, dynamic>()),
+          await _decodeRemoteNoteChange(
+              session, change.cast<String, dynamic>()),
         );
       }
     }
@@ -326,7 +340,10 @@ class SyncApiClient {
     if (response.statusCode >= 400) {
       final body =
           response.body.isEmpty ? response.reasonPhrase : response.body;
-      throw Exception('HTTP ${response.statusCode}: $body');
+      throw SyncApiException(
+        statusCode: response.statusCode,
+        message: '$body',
+      );
     }
     return response;
   }
@@ -430,5 +447,4 @@ class SyncApiClient {
       recoveryKeyHint: body['recoveryKeyHint'] as String? ?? '',
     );
   }
-
 }

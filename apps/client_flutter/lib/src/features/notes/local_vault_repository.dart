@@ -174,14 +174,12 @@ class LocalVaultRepository {
     final trashedFiles =
         await _listMarkdownFiles(await _trashDirectory(root.path));
 
-    files.sort((left, right) => left.path.compareTo(right.path));
-    trashedFiles.sort((left, right) => left.path.compareTo(right.path));
-
     final folderSet = <String>{};
     final draftNotes = <_DraftNote>[];
     final draftTrashedNotes = <_DraftNote>[];
 
     for (final file in files) {
+      final stat = await file.stat();
       final relativePath =
           path.relative(file.path, from: root.path).replaceAll('\\', '/');
       final markdown = await file.readAsString();
@@ -198,6 +196,7 @@ class LocalVaultRepository {
           objectId: relativePath,
           title: title,
           relativePath: relativePath,
+          modifiedAt: stat.modified.toUtc(),
           markdown: markdown,
           tags: tags,
           wikilinks: wikilinks,
@@ -207,6 +206,7 @@ class LocalVaultRepository {
 
     final trashRoot = await _trashDirectory(root.path);
     for (final file in trashedFiles) {
+      final stat = await file.stat();
       final relativePath =
           path.relative(file.path, from: trashRoot.path).replaceAll('\\', '/');
       final markdown = await file.readAsString();
@@ -219,6 +219,7 @@ class LocalVaultRepository {
           objectId: relativePath,
           title: title,
           relativePath: relativePath,
+          modifiedAt: stat.modified.toUtc(),
           markdown: markdown,
           tags: tags,
           wikilinks: wikilinks,
@@ -251,6 +252,7 @@ class LocalVaultRepository {
             objectId: note.objectId,
             title: note.title,
             relativePath: note.relativePath,
+            modifiedAt: note.modifiedAt,
             markdown: note.markdown,
             tags: note.tags,
             wikilinks: note.wikilinks,
@@ -265,6 +267,7 @@ class LocalVaultRepository {
             objectId: note.objectId,
             title: note.title,
             relativePath: note.relativePath,
+            modifiedAt: note.modifiedAt,
             markdown: note.markdown,
             tags: note.tags,
             wikilinks: note.wikilinks,
@@ -272,6 +275,9 @@ class LocalVaultRepository {
           ),
         )
         .toList(growable: false);
+
+    notes.sort(_compareNotesByRecency);
+    trashedNotes.sort(_compareNotesByRecency);
 
     final folders = folderSet.toList()..sort();
 
@@ -389,6 +395,14 @@ Reference [[Roadmap]] when documenting setup.
     return value.trim().toLowerCase().replaceAll('\\', '/');
   }
 
+  static int _compareNotesByRecency(VaultNote left, VaultNote right) {
+    final modifiedComparison = right.modifiedAt.compareTo(left.modifiedAt);
+    if (modifiedComparison != 0) {
+      return modifiedComparison;
+    }
+    return left.relativePath.compareTo(right.relativePath);
+  }
+
   static String noteDigest(VaultNote note) {
     return sha256
         .convert(utf8.encode('${note.relativePath}\n${note.markdown}'))
@@ -424,6 +438,7 @@ class _DraftNote {
     required this.objectId,
     required this.title,
     required this.relativePath,
+    required this.modifiedAt,
     required this.markdown,
     required this.tags,
     required this.wikilinks,
@@ -432,6 +447,7 @@ class _DraftNote {
   final String objectId;
   final String title;
   final String relativePath;
+  final DateTime modifiedAt;
   final String markdown;
   final List<String> tags;
   final List<String> wikilinks;

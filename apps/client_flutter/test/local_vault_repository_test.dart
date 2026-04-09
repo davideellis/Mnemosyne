@@ -24,6 +24,7 @@ void main() {
       (note) => note.title == 'Welcome to Mnemosyne',
     );
     expect(welcome.backlinks, contains('Roadmap'));
+    expect(welcome.modifiedAt, isA<DateTime>());
   });
 
   test('applyRemoteChanges writes synced markdown into the vault', () async {
@@ -207,5 +208,35 @@ void main() {
     expect(renamedSnapshot.notes, hasLength(1));
     expect(renamedSnapshot.notes.first.objectId, 'Projects/renamed.md');
     expect(renamedSnapshot.folders, contains('Projects'));
+  });
+
+  test('loadVaultAtPath sorts notes by most recent modification first',
+      () async {
+    final repository = LocalVaultRepository();
+    final root =
+        await Directory.systemTemp.createTemp('mnemosyne_modified_sort_vault');
+    addTearDown(() async {
+      if (await root.exists()) {
+        await root.delete(recursive: true);
+      }
+    });
+
+    final olderFile = File('${root.path}${Platform.pathSeparator}older.md');
+    await olderFile.writeAsString('# Older');
+    final olderTimestamp = DateTime.utc(2026, 1, 2, 3, 4, 5);
+    await olderFile.setLastModified(olderTimestamp);
+
+    final newerFile = File('${root.path}${Platform.pathSeparator}newer.md');
+    await newerFile.writeAsString('# Newer');
+    final newerTimestamp = DateTime.utc(2026, 1, 3, 3, 4, 5);
+    await newerFile.setLastModified(newerTimestamp);
+
+    final snapshot = await repository.loadVaultAtPath(root.path);
+
+    expect(snapshot.notes, hasLength(2));
+    expect(snapshot.notes.first.objectId, 'newer.md');
+    expect(snapshot.notes.first.modifiedAt, newerTimestamp);
+    expect(snapshot.notes.last.objectId, 'older.md');
+    expect(snapshot.notes.last.modifiedAt, olderTimestamp);
   });
 }

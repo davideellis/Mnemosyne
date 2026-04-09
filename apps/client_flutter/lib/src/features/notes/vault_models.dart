@@ -3,6 +3,7 @@ class VaultNote {
     required this.objectId,
     required this.title,
     required this.relativePath,
+    required this.modifiedAt,
     required this.markdown,
     required this.tags,
     required this.wikilinks,
@@ -12,6 +13,7 @@ class VaultNote {
   final String objectId;
   final String title;
   final String relativePath;
+  final DateTime modifiedAt;
   final String markdown;
   final List<String> tags;
   final List<String> wikilinks;
@@ -19,6 +21,7 @@ class VaultNote {
 
   VaultNote copyWith({
     String? title,
+    DateTime? modifiedAt,
     String? markdown,
     List<String>? tags,
     List<String>? wikilinks,
@@ -28,6 +31,7 @@ class VaultNote {
       objectId: objectId,
       title: title ?? this.title,
       relativePath: relativePath,
+      modifiedAt: modifiedAt ?? this.modifiedAt,
       markdown: markdown ?? this.markdown,
       tags: tags ?? this.tags,
       wikilinks: wikilinks ?? this.wikilinks,
