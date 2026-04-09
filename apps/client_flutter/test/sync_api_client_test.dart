@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:mnemosyne/src/features/notes/sync_api_client.dart';
+import 'package:mnemosyne/src/features/notes/sync_crypto_service.dart';
 import 'package:mnemosyne/src/features/notes/sync_models.dart';
 
 void main() {
@@ -37,9 +38,65 @@ void main() {
     expect(session.accountId, 'acct_local');
     expect(session.sessionToken, 'session_bootstrap');
     expect(session.email, 'demo@mnemosyne.local');
+    expect(session.masterKeyMaterial, isNotEmpty);
+    expect(session.encryptedMasterKeyForPassword, isNotEmpty);
   });
 
-  test('syncVault pushes notes then pulls updates', () async {
+  test('login unwraps a persisted master key from the server response', () async {
+    final cryptoService = SyncCryptoService();
+    final bootstrapMaterial = await cryptoService.createBootstrapMaterial(
+      email: 'demo@mnemosyne.local',
+      password: 'password',
+      recoveryKey: 'AAAA-BBBB-CCCC-DDDD',
+    );
+
+    final client = SyncApiClient(
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/v1/auth/login');
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'accountId': 'acct_local',
+            'sessionToken': 'session_login',
+            'encryptedMasterKeyForPassword':
+                bootstrapMaterial.encryptedMasterKeyForPassword,
+            'encryptedMasterKeyForRecovery':
+                bootstrapMaterial.encryptedMasterKeyForRecovery,
+            'recoveryKeyHint': 'saved-locally',
+          }),
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    final session = await client.login(
+      baseUri: Uri.parse('http://127.0.0.1:8080'),
+      email: 'demo@mnemosyne.local',
+      password: 'password',
+    );
+
+    expect(session.sessionToken, 'session_login');
+    expect(session.masterKeyMaterial, bootstrapMaterial.masterKeyMaterial);
+  });
+
+  test('syncVault pushes notes then pulls decrypted updates', () async {
+    final cryptoService = SyncCryptoService();
+    final bootstrapMaterial = await cryptoService.createBootstrapMaterial(
+      email: 'demo@mnemosyne.local',
+      password: 'password',
+      recoveryKey: 'AAAA-BBBB-CCCC-DDDD',
+    );
+    final encryptedRemoteNote = await cryptoService.encryptNote(
+      masterKeyMaterial: bootstrapMaterial.masterKeyMaterial,
+      metadata: <String, dynamic>{
+        'title': 'Remote',
+        'relativePath': 'Journal/remote.md',
+        'tags': <String>['remote'],
+        'wikilinks': <String>['Welcome'],
+      },
+      markdown: '# Remote',
+    );
+
     var requestCount = 0;
     final client = SyncApiClient(
       httpClient: MockClient((request) async {
@@ -48,7 +105,7 @@ void main() {
           return http.Response(
             jsonEncode(<String, dynamic>{
               'cursor': 'cursor-1',
-              'changes': <dynamic>[]
+              'changes': <dynamic>[],
             }),
             202,
             headers: const <String, String>{'content-type': 'application/json'},
@@ -63,17 +120,8 @@ void main() {
                 'changeId': 'change-2',
                 'objectId': 'note-2',
                 'operation': 'upsert',
-                'encryptedMetadata': base64Encode(
-                  utf8.encode(
-                    jsonEncode(<String, dynamic>{
-                      'title': 'Remote',
-                      'relativePath': 'Journal/remote.md',
-                      'tags': <String>['remote'],
-                      'wikilinks': <String>['Welcome'],
-                    }),
-                  ),
-                ),
-                'encryptedPayload': base64Encode(utf8.encode('# Remote')),
+                'encryptedMetadata': encryptedRemoteNote.encryptedMetadata,
+                'encryptedPayload': encryptedRemoteNote.encryptedPayload,
               },
             ],
           }),
@@ -81,14 +129,21 @@ void main() {
           headers: const <String, String>{'content-type': 'application/json'},
         );
       }),
+      cryptoService: cryptoService,
     );
 
     final result = await client.syncVault(
       baseUri: Uri.parse('http://127.0.0.1:8080'),
-      session: const SyncSession(
+      session: SyncSession(
         accountId: 'acct_local',
         sessionToken: 'session_bootstrap',
         email: 'demo@mnemosyne.local',
+        encryptedMasterKeyForPassword:
+            bootstrapMaterial.encryptedMasterKeyForPassword,
+        encryptedMasterKeyForRecovery:
+            bootstrapMaterial.encryptedMasterKeyForRecovery,
+        masterKeyMaterial: bootstrapMaterial.masterKeyMaterial,
+        recoveryKeyHint: 'saved-locally',
       ),
       changes: const <SyncPushChange>[
         SyncPushChange(

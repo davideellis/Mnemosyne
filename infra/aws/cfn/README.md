@@ -20,11 +20,19 @@ Created resources:
 
 ## Current Status
 
-This is infrastructure scaffolding, not a production-ready deployment yet.
+The stack now deploys a packaged Go Lambda, API Gateway, DynamoDB, and S3 for the test environment.
 
-Before deploying to AWS for real, the following needs to happen:
+What is validated today:
 
-1. Replace the inline Lambda placeholder with the built Go binary artifact.
-2. Wire the Go API to DynamoDB and S3.
-3. Add alarms, backups, and deployment packaging.
-4. Validate the bootstrap flow for the single-account self-hosted mode.
+1. Lambda packaging from the repository
+2. Repeatable deployment to `Mnemosyne-tst`
+3. Health checks against the deployed API
+4. Single-account bootstrap, login, encrypted push, and encrypted pull smoke-tested against the test stack
+5. Encrypted payload bodies can be written to the notes S3 bucket while sync state remains in DynamoDB
+
+What still needs hardening before production:
+
+1. Expand the current S3-backed payload path beyond the single-state prototype into a fuller object-manifest model
+2. Add alarms, backups, and operational runbooks
+3. Add deployment safety for production promotion
+4. Validate recovery and device-provisioning flows end to end

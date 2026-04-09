@@ -102,6 +102,7 @@ Resources:
       Environment:
         Variables:
           MNEMOSYNE_DDB_TABLE: !Ref MetadataTable
+          MNEMOSYNE_NOTES_BUCKET: !Ref NotesBucket
           MNEMOSYNE_BOOTSTRAP_EMAIL: !Ref BootstrapEmail
           MNEMOSYNE_ENABLE_HOSTED_BOOTSTRAP: !Ref EnableHostedBootstrap
           MNEMOSYNE_AWS_MODE: lambda

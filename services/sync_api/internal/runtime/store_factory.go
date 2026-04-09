@@ -11,7 +11,7 @@ import (
 func BuildStore() (api.Store, error) {
 	if tableName := os.Getenv("MNEMOSYNE_DDB_TABLE"); tableName != "" {
 		log.Printf("using DynamoDB sync state table %s", tableName)
-		return sync.NewDynamoStore(tableName)
+		return sync.NewDynamoStore(tableName, os.Getenv("MNEMOSYNE_NOTES_BUCKET"))
 	}
 
 	if filePath := os.Getenv("MNEMOSYNE_STATE_FILE"); filePath != "" {

@@ -67,3 +67,79 @@ func TestFileStorePersistsBootstrapAndChanges(t *testing.T) {
 		t.Fatalf("expected note-1, got %s", pull.Changes[0].ObjectID)
 	}
 }
+
+func TestFileStoreRejectsStaleChangesAcrossReload(t *testing.T) {
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "state.json")
+
+	store, err := NewFileStore(filePath)
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	session, err := store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	_, err = store.Push(SyncPushRequest{
+		SessionToken: session.SessionToken,
+		Changes: []SyncChange{
+			{
+				ChangeID:         "change-2",
+				ObjectID:         "note-1",
+				Kind:             "note",
+				Operation:        "upsert",
+				LogicalTimestamp: "2026-04-08T18:00:00Z",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("push latest: %v", err)
+	}
+
+	reloadedStore, err := NewFileStore(filePath)
+	if err != nil {
+		t.Fatalf("reload file store: %v", err)
+	}
+
+	_, err = reloadedStore.Push(SyncPushRequest{
+		SessionToken: session.SessionToken,
+		Changes: []SyncChange{
+			{
+				ChangeID:         "change-1",
+				ObjectID:         "note-1",
+				Kind:             "note",
+				Operation:        "upsert",
+				LogicalTimestamp: "2026-04-08T17:59:00Z",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("push stale: %v", err)
+	}
+
+	pull, err := reloadedStore.Pull(SyncPullRequest{
+		SessionToken: session.SessionToken,
+	})
+	if err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+
+	if len(pull.Changes) != 1 {
+		t.Fatalf("expected only 1 accepted change, got %d", len(pull.Changes))
+	}
+	if pull.Changes[0].ChangeID != "change-2" {
+		t.Fatalf("expected latest change to survive reload, got %s", pull.Changes[0].ChangeID)
+	}
+}

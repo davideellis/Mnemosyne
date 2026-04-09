@@ -2,14 +2,18 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'sync_crypto_service.dart';
 import 'sync_models.dart';
 
 class SyncApiClient {
   SyncApiClient({
     http.Client? httpClient,
-  }) : _httpClient = httpClient ?? http.Client();
+    SyncCryptoService? cryptoService,
+  })  : _httpClient = httpClient ?? http.Client(),
+        _cryptoService = cryptoService ?? SyncCryptoService();
 
   final http.Client _httpClient;
+  final SyncCryptoService _cryptoService;
 
   Future<SyncSession> bootstrapAccount({
     required Uri baseUri,
@@ -20,15 +24,21 @@ class SyncApiClient {
     required String deviceName,
     required String platform,
   }) async {
+    final bootstrapMaterial = await _cryptoService.createBootstrapMaterial(
+      email: email,
+      password: password,
+      recoveryKey: recoveryKey,
+    );
     final response = await _post(
       baseUri,
       '/v1/account/bootstrap',
       <String, dynamic>{
         'email': email,
-        'passwordVerifier': _passwordVerifier(email, password),
-        'encryptedMasterKeyForPassword': _opaqueEnvelope('master:$email:pw'),
+        'passwordVerifier': bootstrapMaterial.passwordVerifier,
+        'encryptedMasterKeyForPassword':
+            bootstrapMaterial.encryptedMasterKeyForPassword,
         'encryptedMasterKeyForRecovery':
-            _opaqueEnvelope('master:$email:$recoveryKey'),
+            bootstrapMaterial.encryptedMasterKeyForRecovery,
         'recoveryKeyHint': recoveryKeyHint,
         'device': <String, dynamic>{
           'deviceId': _deviceId(deviceName, platform),
@@ -43,6 +53,14 @@ class SyncApiClient {
       accountId: body['accountId'] as String,
       sessionToken: body['sessionToken'] as String,
       email: email,
+      encryptedMasterKeyForPassword:
+          body['encryptedMasterKeyForPassword'] as String? ??
+              bootstrapMaterial.encryptedMasterKeyForPassword,
+      encryptedMasterKeyForRecovery:
+          body['encryptedMasterKeyForRecovery'] as String? ??
+              bootstrapMaterial.encryptedMasterKeyForRecovery,
+      masterKeyMaterial: bootstrapMaterial.masterKeyMaterial,
+      recoveryKeyHint: body['recoveryKeyHint'] as String? ?? recoveryKeyHint,
     );
   }
 
@@ -56,15 +74,29 @@ class SyncApiClient {
       '/v1/auth/login',
       <String, dynamic>{
         'email': email,
-        'passwordVerifier': _passwordVerifier(email, password),
+        'passwordVerifier': await _passwordVerifier(email, password),
       },
     );
 
     final body = _decodeJson(response);
+    final encryptedMasterKeyForPassword =
+        body['encryptedMasterKeyForPassword'] as String? ?? '';
+    final masterKeyMaterial = encryptedMasterKeyForPassword.isEmpty
+        ? ''
+        : await _cryptoService.unwrapMasterKeyWithPassword(
+            email: email,
+            password: password,
+            encryptedMasterKeyForPassword: encryptedMasterKeyForPassword,
+          );
     return SyncSession(
       accountId: body['accountId'] as String,
       sessionToken: body['sessionToken'] as String,
       email: email,
+      encryptedMasterKeyForPassword: encryptedMasterKeyForPassword,
+      encryptedMasterKeyForRecovery:
+          body['encryptedMasterKeyForRecovery'] as String? ?? '',
+      masterKeyMaterial: masterKeyMaterial,
+      recoveryKeyHint: body['recoveryKeyHint'] as String? ?? '',
     );
   }
 
@@ -76,39 +108,72 @@ class SyncApiClient {
     required String deviceName,
     required String platform,
   }) async {
+    if (session.masterKeyMaterial.isEmpty) {
+      throw Exception(
+        'This session does not have a local master key. Sign in again to continue syncing.',
+      );
+    }
+
+    final encodedChanges = <Map<String, dynamic>>[];
+    for (final change in changes) {
+      encodedChanges.add(
+        await _encodeNoteChange(change, session, deviceName, platform),
+      );
+    }
+
     final pushResponse = await _post(
       baseUri,
       '/v1/sync/push',
       <String, dynamic>{
         'sessionToken': session.sessionToken,
         'cursor': cursor,
-        'changes': changes
-            .map((change) => _encodeNoteChange(change, deviceName, platform))
-            .toList(),
+        'changes': encodedChanges,
       },
     );
 
     final pushBody = _decodeJson(pushResponse);
     final nextCursor = (pushBody['cursor'] as String?) ?? cursor;
 
+    final pullResult = await pullVault(
+      baseUri: baseUri,
+      session: session,
+      cursor: nextCursor,
+    );
+    return SyncResult(
+      cursor: pullResult.cursor,
+      pushedCount: changes.length,
+      pulledCount: pullResult.pulledCount,
+      pulledChanges: pullResult.pulledChanges,
+    );
+  }
+
+  Future<SyncResult> pullVault({
+    required Uri baseUri,
+    required SyncSession session,
+    required String cursor,
+  }) async {
     final pullResponse = await _post(
       baseUri,
       '/v1/sync/pull',
       <String, dynamic>{
         'sessionToken': session.sessionToken,
-        'cursor': nextCursor,
+        'cursor': cursor,
       },
     );
 
     final pullBody = _decodeJson(pullResponse);
-    final pulledChanges = (pullBody['changes'] as List<dynamic>? ?? const [])
-        .whereType<Map>()
-        .map(
-            (change) => _decodeRemoteNoteChange(change.cast<String, dynamic>()))
-        .toList(growable: false);
+    final pulledChanges = <RemoteNoteChange>[];
+    for (final change in (pullBody['changes'] as List<dynamic>? ?? const [])) {
+      if (change is Map) {
+        pulledChanges.add(
+          await _decodeRemoteNoteChange(session, change.cast<String, dynamic>()),
+        );
+      }
+    }
+
     return SyncResult(
-      cursor: (pullBody['cursor'] as String?) ?? nextCursor,
-      pushedCount: changes.length,
+      cursor: (pullBody['cursor'] as String?) ?? cursor,
+      pushedCount: 0,
       pulledCount: pulledChanges.length,
       pulledChanges: pulledChanges,
     );
@@ -136,11 +201,12 @@ class SyncApiClient {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
-  Map<String, dynamic> _encodeNoteChange(
+  Future<Map<String, dynamic>> _encodeNoteChange(
     SyncPushChange change,
+    SyncSession session,
     String deviceName,
     String platform,
-  ) {
+  ) async {
     final timestamp = DateTime.now().toUtc().toIso8601String();
     final metadata = <String, dynamic>{
       'title': change.title,
@@ -149,7 +215,12 @@ class SyncApiClient {
       'wikilinks': change.wikilinks,
     };
 
-    // Placeholder transport envelopes for early integration work.
+    final encryptedPayload = await _cryptoService.encryptNote(
+      masterKeyMaterial: session.masterKeyMaterial,
+      metadata: metadata,
+      markdown: change.markdown,
+    );
+
     return <String, dynamic>{
       'changeId': '${change.objectId}:$timestamp:${change.operation}',
       'objectId': change.objectId,
@@ -157,27 +228,32 @@ class SyncApiClient {
       'operation': change.operation,
       'logicalTimestamp': timestamp,
       'originDeviceId': _deviceId(deviceName, platform),
-      'encryptedMetadata': _opaqueEnvelope(jsonEncode(metadata)),
-      'encryptedPayload': _opaqueEnvelope(change.markdown),
+      'encryptedMetadata': encryptedPayload.encryptedMetadata,
+      'encryptedPayload': encryptedPayload.encryptedPayload,
     };
   }
 
-  String _passwordVerifier(String email, String password) {
-    return _opaqueEnvelope('$email::$password');
+  Future<String> _passwordVerifier(String email, String password) async {
+    return _cryptoService.passwordVerifierForCredentials(
+      email: email,
+      password: password,
+    );
   }
 
   String _deviceId(String deviceName, String platform) {
     return base64Url.encode(utf8.encode('$deviceName::$platform'));
   }
 
-  String _opaqueEnvelope(String value) {
-    return base64Encode(utf8.encode(value));
-  }
-
-  RemoteNoteChange _decodeRemoteNoteChange(Map<String, dynamic> json) {
-    final metadataEnvelope = json['encryptedMetadata'] as String? ?? '';
-    final payloadEnvelope = json['encryptedPayload'] as String? ?? '';
-    final metadata = _decodeEnvelopeJson(metadataEnvelope);
+  Future<RemoteNoteChange> _decodeRemoteNoteChange(
+    SyncSession session,
+    Map<String, dynamic> json,
+  ) async {
+    final decrypted = await _cryptoService.decryptNote(
+      masterKeyMaterial: session.masterKeyMaterial,
+      encryptedMetadata: json['encryptedMetadata'] as String? ?? '',
+      encryptedPayload: json['encryptedPayload'] as String? ?? '',
+    );
+    final metadata = decrypted.metadata;
 
     return RemoteNoteChange(
       changeId: json['changeId'] as String? ?? '',
@@ -185,7 +261,7 @@ class SyncApiClient {
       operation: json['operation'] as String? ?? 'upsert',
       relativePath: metadata['relativePath'] as String? ?? '',
       title: metadata['title'] as String? ?? '',
-      markdown: _decodeEnvelopeText(payloadEnvelope),
+      markdown: decrypted.markdown,
       tags: (metadata['tags'] as List<dynamic>? ?? const <dynamic>[])
           .whereType<String>()
           .toList(growable: false),
@@ -195,32 +271,4 @@ class SyncApiClient {
     );
   }
 
-  Map<String, dynamic> _decodeEnvelopeJson(String encoded) {
-    if (encoded.isEmpty) {
-      return const <String, dynamic>{};
-    }
-
-    final decoded = _decodeEnvelopeText(encoded);
-    if (decoded.isEmpty) {
-      return const <String, dynamic>{};
-    }
-
-    final json = jsonDecode(decoded);
-    if (json is Map<String, dynamic>) {
-      return json;
-    }
-    return const <String, dynamic>{};
-  }
-
-  String _decodeEnvelopeText(String encoded) {
-    if (encoded.isEmpty) {
-      return '';
-    }
-
-    try {
-      return utf8.decode(base64Decode(encoded));
-    } catch (_) {
-      return '';
-    }
-  }
 }

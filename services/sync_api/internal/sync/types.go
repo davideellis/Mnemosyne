@@ -57,8 +57,11 @@ type RestoreTrashRequest struct {
 }
 
 type AuthSession struct {
-	SessionToken string `json:"sessionToken"`
-	AccountID    string `json:"accountId"`
+	SessionToken                  string `json:"sessionToken"`
+	AccountID                     string `json:"accountId"`
+	EncryptedMasterKeyForPassword string `json:"encryptedMasterKeyForPassword,omitempty"`
+	EncryptedMasterKeyForRecovery string `json:"encryptedMasterKeyForRecovery,omitempty"`
+	RecoveryKeyHint               string `json:"recoveryKeyHint,omitempty"`
 }
 
 type PullResponse struct {

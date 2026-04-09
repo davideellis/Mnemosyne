@@ -18,6 +18,10 @@ void main() {
         accountId: 'acct_local',
         sessionToken: 'session_bootstrap',
         email: 'demo@mnemosyne.local',
+        encryptedMasterKeyForPassword: 'enc-pw',
+        encryptedMasterKeyForRecovery: 'enc-rec',
+        masterKeyMaterial: 'master-key',
+        recoveryKeyHint: 'saved-locally',
       ),
     );
 
@@ -32,6 +36,7 @@ void main() {
     expect(restored.syncCursor, state.syncCursor);
     expect(restored.vaultRootPath, state.vaultRootPath);
     expect(restored.session?.sessionToken, state.session?.sessionToken);
+    expect(restored.session?.masterKeyMaterial, state.session?.masterKeyMaterial);
   });
 
   test('repository load returns empty state when no file exists', () async {

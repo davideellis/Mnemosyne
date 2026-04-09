@@ -39,6 +39,12 @@ class PersistedAppState {
               'accountId': sessionValue.accountId,
               'sessionToken': sessionValue.sessionToken,
               'email': sessionValue.email,
+              'encryptedMasterKeyForPassword':
+                  sessionValue.encryptedMasterKeyForPassword,
+              'encryptedMasterKeyForRecovery':
+                  sessionValue.encryptedMasterKeyForRecovery,
+              'masterKeyMaterial': sessionValue.masterKeyMaterial,
+              'recoveryKeyHint': sessionValue.recoveryKeyHint,
             },
     };
   }
@@ -68,6 +74,13 @@ class PersistedAppState {
               accountId: sessionJson['accountId'] as String,
               sessionToken: sessionJson['sessionToken'] as String,
               email: sessionJson['email'] as String,
+              encryptedMasterKeyForPassword:
+                  sessionJson['encryptedMasterKeyForPassword'] as String? ?? '',
+              encryptedMasterKeyForRecovery:
+                  sessionJson['encryptedMasterKeyForRecovery'] as String? ?? '',
+              masterKeyMaterial:
+                  sessionJson['masterKeyMaterial'] as String? ?? '',
+              recoveryKeyHint: sessionJson['recoveryKeyHint'] as String? ?? '',
             ),
     );
   }

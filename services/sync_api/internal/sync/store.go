@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	stdsync "sync"
+	"time"
 )
 
 var (
@@ -29,6 +30,7 @@ type MemoryStore struct {
 	account        *accountRecord
 	sessions       map[string]string
 	changes        []SyncChange
+	latestChanges  map[string]SyncChange
 	trashObjectIDs map[string]bool
 }
 
@@ -43,7 +45,18 @@ func restoreChangeID(count int) string {
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		sessions:       map[string]string{},
+		latestChanges:  map[string]SyncChange{},
 		trashObjectIDs: map[string]bool{},
+	}
+}
+
+func authSessionForAccount(sessionToken string, account *accountRecord) AuthSession {
+	return AuthSession{
+		SessionToken:                  sessionToken,
+		AccountID:                     account.AccountID,
+		EncryptedMasterKeyForPassword: account.EncryptedMasterKeyForPassword,
+		EncryptedMasterKeyForRecovery: account.EncryptedMasterKeyForRecovery,
+		RecoveryKeyHint:               account.RecoveryKeyHint,
 	}
 }
 
@@ -68,10 +81,7 @@ func (s *MemoryStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error
 	}
 	s.sessions[sessionToken] = accountID
 
-	return AuthSession{
-		SessionToken: sessionToken,
-		AccountID:    accountID,
-	}, nil
+	return authSessionForAccount(sessionToken, s.account), nil
 }
 
 func (s *MemoryStore) Login(req LoginRequest) (AuthSession, error) {
@@ -85,10 +95,7 @@ func (s *MemoryStore) Login(req LoginRequest) (AuthSession, error) {
 	sessionToken := sessionTokenForCount(len(s.sessions) + 1)
 	s.sessions[sessionToken] = s.account.AccountID
 
-	return AuthSession{
-		SessionToken: sessionToken,
-		AccountID:    s.account.AccountID,
-	}, nil
+	return authSessionForAccount(sessionToken, s.account), nil
 }
 
 func (s *MemoryStore) RegisterDevice(req DeviceRegistrationRequest) (Device, error) {
@@ -146,12 +153,16 @@ func (s *MemoryStore) Push(req SyncPushRequest) (PullResponse, error) {
 		if change.ChangeID == "" || change.ObjectID == "" {
 			return PullResponse{}, ErrChangeRejected
 		}
+		if !shouldAcceptChange(s.latestChanges[change.ObjectID], change) {
+			continue
+		}
 		if change.Operation == "trash" {
 			s.trashObjectIDs[change.ObjectID] = true
 		}
 		if change.Operation == "restore" {
 			delete(s.trashObjectIDs, change.ObjectID)
 		}
+		s.latestChanges[change.ObjectID] = change
 		s.changes = append(s.changes, change)
 	}
 
@@ -189,6 +200,37 @@ func (s *MemoryStore) RestoreTrash(req RestoreTrashRequest) (SyncChange, error) 
 	}
 
 	delete(s.trashObjectIDs, req.ObjectID)
+	s.latestChanges[req.ObjectID] = change
 	s.changes = append(s.changes, change)
 	return change, nil
+}
+
+func shouldAcceptChange(current SyncChange, incoming SyncChange) bool {
+	if current.ChangeID == "" {
+		return true
+	}
+
+	currentTimestamp := parseLogicalTimestamp(current.LogicalTimestamp)
+	incomingTimestamp := parseLogicalTimestamp(incoming.LogicalTimestamp)
+
+	switch {
+	case incomingTimestamp.After(currentTimestamp):
+		return true
+	case incomingTimestamp.Before(currentTimestamp):
+		return false
+	default:
+		return incoming.ChangeID > current.ChangeID
+	}
+}
+
+func parseLogicalTimestamp(value string) time.Time {
+	if value == "" {
+		return time.Time{}
+	}
+
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed.UTC()
 }

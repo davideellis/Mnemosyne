@@ -4,13 +4,13 @@ This document is for implementation agents. Use it as the default build plan unl
 
 ## Current Phase
 
-The repository is in planning/bootstrap stage.
+The repository is in active implementation with a working test deployment path.
 
 Immediate goal:
 
-- Establish a clean monorepo skeleton
-- Lock the architecture choices from `ARCHITECTURE.md`
-- Build the sync core and local vault behavior before polishing advanced UI
+- Harden the encrypted sync path across client, API, and AWS test infrastructure
+- Keep the deployed `Mnemosyne-tst` stack aligned with the local codebase
+- Move backend storage closer to the intended DynamoDB-plus-S3 model before production work
 
 ## Priority Order
 
@@ -123,6 +123,14 @@ CloudFormation MVP goals:
 - Single-account bootstrap
 - Low monthly idle cost
 - Clear outputs for API URL and bootstrap credentials flow
+
+Current test deployment workflow on this machine:
+
+- Use `.\scripts\deploy-tst.ps1` from the repo root
+- The script is intentionally hard-scoped to AWS account `163649805194`
+- It builds the Lambda artifact, uploads it under a fresh S3 key, deploys `Mnemosyne-tst`, and runs a `/healthz` smoke check
+- Use `flutter pub run tool/smoke_sync_api.dart --base-url <api> --email <email> --password <password>` from `apps/client_flutter` for an encrypted login/push/pull smoke test
+- Do not point this script at production; keep production changes manual until the test path is stable
 
 Document at least:
 

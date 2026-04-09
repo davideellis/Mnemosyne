@@ -115,6 +115,75 @@ func TestPushThenPull(t *testing.T) {
 	}
 }
 
+func TestPushIgnoresStaleChangeForSameObject(t *testing.T) {
+	store := sync.NewMemoryStore()
+	server := NewServer(store)
+
+	session, err := store.Bootstrap(sync.AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: sync.Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+
+	pushBody := sync.SyncPushRequest{
+		SessionToken: session.SessionToken,
+		Changes: []sync.SyncChange{
+			{
+				ChangeID:         "change-2",
+				ObjectID:         "note-1",
+				Kind:             "note",
+				Operation:        "upsert",
+				LogicalTimestamp: "2026-04-08T18:00:00Z",
+			},
+			{
+				ChangeID:         "change-1",
+				ObjectID:         "note-1",
+				Kind:             "note",
+				Operation:        "upsert",
+				LogicalTimestamp: "2026-04-08T17:59:00Z",
+			},
+		},
+	}
+
+	recorder := httptest.NewRecorder()
+	request := newJSONRequest(t, http.MethodPost, "/v1/sync/push", pushBody)
+	server.Routes().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected status %d, got %d", http.StatusAccepted, recorder.Code)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = newJSONRequest(t, http.MethodPost, "/v1/sync/pull", sync.SyncPullRequest{
+		SessionToken: session.SessionToken,
+	})
+	server.Routes().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	var response sync.PullResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if len(response.Changes) != 1 {
+		t.Fatalf("expected 1 accepted change, got %d", len(response.Changes))
+	}
+	if response.Changes[0].ChangeID != "change-2" {
+		t.Fatalf("expected latest change to survive, got %s", response.Changes[0].ChangeID)
+	}
+}
+
 func newJSONRequest(t *testing.T, method string, path string, body any) *http.Request {
 	t.Helper()
 

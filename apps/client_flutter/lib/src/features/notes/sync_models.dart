@@ -3,11 +3,19 @@ class SyncSession {
     required this.accountId,
     required this.sessionToken,
     required this.email,
+    required this.encryptedMasterKeyForPassword,
+    required this.encryptedMasterKeyForRecovery,
+    required this.masterKeyMaterial,
+    required this.recoveryKeyHint,
   });
 
   final String accountId;
   final String sessionToken;
   final String email;
+  final String encryptedMasterKeyForPassword;
+  final String encryptedMasterKeyForRecovery;
+  final String masterKeyMaterial;
+  final String recoveryKeyHint;
 }
 
 class SyncPushChange {

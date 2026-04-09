@@ -41,7 +41,7 @@ Request:
 
 ### `POST /v1/auth/login`
 
-Returns a session token for an existing account.
+Returns a session token plus the wrapped master-key material needed for the client to recover the vault key locally.
 
 ### `POST /v1/devices/register`
 
@@ -84,10 +84,26 @@ Restores a note or folder from synced trash.
 
 The exact metadata envelope can evolve, but it must remain encrypted.
 
+## Auth Response Shape
+
+Bootstrap and login responses return:
+
+```json
+{
+  "accountId": "acct_local",
+  "sessionToken": "opaque-session-token",
+  "encryptedMasterKeyForPassword": "base64",
+  "encryptedMasterKeyForRecovery": "base64",
+  "recoveryKeyHint": "optional-short-hint"
+}
+```
+
+The server stores wrapped key material, but it must not have enough information to decrypt note contents on its own.
+
 ## Conflict Handling
 
 - The client sends logical timestamps with each mutation.
 - The server orders accepted changes by timestamp and tie-breaks by change ID.
 - The effective sync policy is last write wins.
+- Stale writes for an object are ignored once the server has already accepted a newer change.
 - Clients may show local warnings, but the server does not merge content.
-

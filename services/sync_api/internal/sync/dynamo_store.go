@@ -3,12 +3,14 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	stdsync "sync"
 	"time"
 
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 const (
@@ -18,23 +20,32 @@ const (
 )
 
 type DynamoStore struct {
-	mu        stdsync.Mutex
-	client    *dynamodb.Client
-	tableName string
-	state     fileStoreState
+	mu           stdsync.Mutex
+	client       *dynamodb.Client
+	tableName    string
+	state        fileStoreState
+	payloadBlobs payloadBlobStore
 }
 
-func NewDynamoStore(tableName string) (*DynamoStore, error) {
+func NewDynamoStore(tableName string, bucketName string) (*DynamoStore, error) {
 	cfg, err := awsconfig.LoadDefaultConfig(context.Background())
 	if err != nil {
 		return nil, err
 	}
 
+	var payloadBlobs payloadBlobStore
+	if bucketName != "" {
+		payloadBlobs = NewS3PayloadStore(s3.NewFromConfig(cfg), bucketName)
+	}
+
 	store := &DynamoStore{
-		client:    dynamodb.NewFromConfig(cfg),
-		tableName: tableName,
+		client:       dynamodb.NewFromConfig(cfg),
+		tableName:    tableName,
+		payloadBlobs: payloadBlobs,
 		state: fileStoreState{
 			Sessions:       map[string]string{},
+			LatestChanges:  map[string]SyncChange{},
+			PayloadRefs:    map[string]string{},
 			TrashObjectIDs: map[string]bool{},
 		},
 	}
@@ -70,10 +81,7 @@ func (s *DynamoStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error
 		return AuthSession{}, err
 	}
 
-	return AuthSession{
-		SessionToken: sessionToken,
-		AccountID:    accountID,
-	}, nil
+	return authSessionForAccount(sessionToken, s.state.Account), nil
 }
 
 func (s *DynamoStore) Login(req LoginRequest) (AuthSession, error) {
@@ -93,10 +101,7 @@ func (s *DynamoStore) Login(req LoginRequest) (AuthSession, error) {
 		return AuthSession{}, err
 	}
 
-	return AuthSession{
-		SessionToken: sessionToken,
-		AccountID:    s.state.Account.AccountID,
-	}, nil
+	return authSessionForAccount(sessionToken, s.state.Account), nil
 }
 
 func (s *DynamoStore) RegisterDevice(req DeviceRegistrationRequest) (Device, error) {
@@ -135,6 +140,21 @@ func (s *DynamoStore) Pull(req SyncPullRequest) (PullResponse, error) {
 
 	responseChanges := make([]SyncChange, len(s.state.Changes[start:]))
 	copy(responseChanges, s.state.Changes[start:])
+	for index, change := range responseChanges {
+		reference := s.state.PayloadRefs[change.ChangeID]
+		if reference == "" {
+			continue
+		}
+		if s.payloadBlobs == nil {
+			return PullResponse{}, errors.New("payload blob store is not configured")
+		}
+
+		payload, err := s.payloadBlobs.GetPayload(reference)
+		if err != nil {
+			return PullResponse{}, err
+		}
+		responseChanges[index].EncryptedPayload = payload
+	}
 
 	cursor := req.Cursor
 	if len(s.state.Changes) > 0 {
@@ -159,13 +179,28 @@ func (s *DynamoStore) Push(req SyncPushRequest) (PullResponse, error) {
 		if change.ChangeID == "" || change.ObjectID == "" {
 			return PullResponse{}, ErrChangeRejected
 		}
+		if !shouldAcceptChange(s.state.LatestChanges[change.ObjectID], change) {
+			continue
+		}
 		if change.Operation == "trash" {
 			s.state.TrashObjectIDs[change.ObjectID] = true
 		}
 		if change.Operation == "restore" {
 			delete(s.state.TrashObjectIDs, change.ObjectID)
 		}
-		s.state.Changes = append(s.state.Changes, change)
+
+		storedChange := change
+		if change.EncryptedPayload != "" && s.payloadBlobs != nil {
+			reference, err := s.payloadBlobs.PutPayload(change.ChangeID, change.EncryptedPayload)
+			if err != nil {
+				return PullResponse{}, err
+			}
+			s.state.PayloadRefs[change.ChangeID] = reference
+			storedChange.EncryptedPayload = ""
+		}
+
+		s.state.LatestChanges[change.ObjectID] = storedChange
+		s.state.Changes = append(s.state.Changes, storedChange)
 	}
 
 	if err := s.save(); err != nil {
@@ -206,6 +241,7 @@ func (s *DynamoStore) RestoreTrash(req RestoreTrashRequest) (SyncChange, error) 
 	}
 
 	delete(s.state.TrashObjectIDs, req.ObjectID)
+	s.state.LatestChanges[req.ObjectID] = change
 	s.state.Changes = append(s.state.Changes, change)
 
 	if err := s.save(); err != nil {
@@ -243,6 +279,12 @@ func (s *DynamoStore) load() error {
 	}
 	if state.Sessions == nil {
 		state.Sessions = map[string]string{}
+	}
+	if state.LatestChanges == nil {
+		state.LatestChanges = map[string]SyncChange{}
+	}
+	if state.PayloadRefs == nil {
+		state.PayloadRefs = map[string]string{}
 	}
 	if state.TrashObjectIDs == nil {
 		state.TrashObjectIDs = map[string]bool{}

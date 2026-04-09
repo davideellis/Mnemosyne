@@ -8,10 +8,12 @@ import (
 )
 
 type fileStoreState struct {
-	Account        *accountRecord    `json:"account"`
-	Sessions       map[string]string `json:"sessions"`
-	Changes        []SyncChange      `json:"changes"`
-	TrashObjectIDs map[string]bool   `json:"trashObjectIds"`
+	Account        *accountRecord        `json:"account"`
+	Sessions       map[string]string     `json:"sessions"`
+	Changes        []SyncChange          `json:"changes"`
+	LatestChanges  map[string]SyncChange `json:"latestChanges"`
+	PayloadRefs    map[string]string     `json:"payloadRefs"`
+	TrashObjectIDs map[string]bool       `json:"trashObjectIds"`
 }
 
 type FileStore struct {
@@ -25,6 +27,8 @@ func NewFileStore(filePath string) (*FileStore, error) {
 		filePath: filePath,
 		state: fileStoreState{
 			Sessions:       map[string]string{},
+			LatestChanges:  map[string]SyncChange{},
+			PayloadRefs:    map[string]string{},
 			TrashObjectIDs: map[string]bool{},
 		},
 	}
@@ -60,10 +64,7 @@ func (s *FileStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error) 
 		return AuthSession{}, err
 	}
 
-	return AuthSession{
-		SessionToken: sessionToken,
-		AccountID:    accountID,
-	}, nil
+	return authSessionForAccount(sessionToken, s.state.Account), nil
 }
 
 func (s *FileStore) Login(req LoginRequest) (AuthSession, error) {
@@ -83,10 +84,7 @@ func (s *FileStore) Login(req LoginRequest) (AuthSession, error) {
 		return AuthSession{}, err
 	}
 
-	return AuthSession{
-		SessionToken: sessionToken,
-		AccountID:    s.state.Account.AccountID,
-	}, nil
+	return authSessionForAccount(sessionToken, s.state.Account), nil
 }
 
 func (s *FileStore) RegisterDevice(req DeviceRegistrationRequest) (Device, error) {
@@ -149,12 +147,16 @@ func (s *FileStore) Push(req SyncPushRequest) (PullResponse, error) {
 		if change.ChangeID == "" || change.ObjectID == "" {
 			return PullResponse{}, ErrChangeRejected
 		}
+		if !shouldAcceptChange(s.state.LatestChanges[change.ObjectID], change) {
+			continue
+		}
 		if change.Operation == "trash" {
 			s.state.TrashObjectIDs[change.ObjectID] = true
 		}
 		if change.Operation == "restore" {
 			delete(s.state.TrashObjectIDs, change.ObjectID)
 		}
+		s.state.LatestChanges[change.ObjectID] = change
 		s.state.Changes = append(s.state.Changes, change)
 	}
 
@@ -196,6 +198,7 @@ func (s *FileStore) RestoreTrash(req RestoreTrashRequest) (SyncChange, error) {
 	}
 
 	delete(s.state.TrashObjectIDs, req.ObjectID)
+	s.state.LatestChanges[req.ObjectID] = change
 	s.state.Changes = append(s.state.Changes, change)
 
 	if err := s.save(); err != nil {
@@ -221,6 +224,12 @@ func (s *FileStore) load() error {
 
 	if state.Sessions == nil {
 		state.Sessions = map[string]string{}
+	}
+	if state.LatestChanges == nil {
+		state.LatestChanges = map[string]SyncChange{}
+	}
+	if state.PayloadRefs == nil {
+		state.PayloadRefs = map[string]string{}
 	}
 	if state.TrashObjectIDs == nil {
 		state.TrashObjectIDs = map[string]bool{}
