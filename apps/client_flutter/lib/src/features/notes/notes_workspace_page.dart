@@ -379,6 +379,58 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     await _authenticate(bootstrap: false);
   }
 
+  Future<void> _recover() async {
+    final recoveryKey = await showDialog<String>(
+      context: context,
+      builder: (context) => const _RecoveryKeyDialog(),
+    );
+    if (recoveryKey == null || recoveryKey.trim().isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _isAuthenticating = true;
+      _syncMessage = null;
+      _statusLabel = 'Recovering access';
+    });
+
+    try {
+      final session = await _syncApiClient.recover(
+        baseUri: _parseBaseUri(),
+        email: _emailController.text.trim(),
+        recoveryKey: recoveryKey.trim(),
+      );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _session = session;
+        _statusLabel = 'Recovered';
+        _syncMessage = 'Recovered access for ${session.email}.';
+      });
+      await _secureKeyRepository.saveMasterKey(
+        accountId: session.accountId,
+        masterKeyMaterial: session.masterKeyMaterial,
+      );
+      await _persistState();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _syncMessage = error.toString();
+        _statusLabel = 'Recovery failed';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAuthenticating = false;
+        });
+      }
+    }
+  }
+
   Future<void> _authenticate({required bool bootstrap}) async {
     setState(() {
       _isAuthenticating = true;
@@ -923,6 +975,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                           isAuthenticating: _isAuthenticating,
                           onBootstrap: _bootstrapAccount,
                           onLogin: _login,
+                          onRecover: _recover,
                         ),
                       ],
                     ),
@@ -1159,6 +1212,54 @@ class _RenameNoteDialogState extends State<_RenameNoteDialog> {
             );
           },
           child: const Text('Apply'),
+        ),
+      ],
+    );
+  }
+}
+
+class _RecoveryKeyDialog extends StatefulWidget {
+  const _RecoveryKeyDialog();
+
+  @override
+  State<_RecoveryKeyDialog> createState() => _RecoveryKeyDialogState();
+}
+
+class _RecoveryKeyDialogState extends State<_RecoveryKeyDialog> {
+  final TextEditingController _recoveryKeyController = TextEditingController();
+
+  @override
+  void dispose() {
+    _recoveryKeyController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Enter recovery key'),
+      content: TextField(
+        controller: _recoveryKeyController,
+        decoration: const InputDecoration(
+          labelText: 'Recovery key',
+          hintText: 'AAAA-BBBB-CCCC-DDDD',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final recoveryKey = _recoveryKeyController.text.trim();
+            if (recoveryKey.isEmpty) {
+              return;
+            }
+            Navigator.of(context).pop(recoveryKey);
+          },
+          child: const Text('Recover'),
         ),
       ],
     );

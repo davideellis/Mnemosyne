@@ -17,6 +17,7 @@ func TestFileStorePersistsBootstrapAndChanges(t *testing.T) {
 	session, err := store.Bootstrap(AccountBootstrapRequest{
 		Email:                         "user@example.com",
 		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
 		EncryptedMasterKeyForPassword: "enc-pw",
 		EncryptedMasterKeyForRecovery: "enc-recovery",
 		Device: Device{
@@ -80,6 +81,7 @@ func TestFileStoreRejectsStaleChangesAcrossReload(t *testing.T) {
 	session, err := store.Bootstrap(AccountBootstrapRequest{
 		Email:                         "user@example.com",
 		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
 		EncryptedMasterKeyForPassword: "enc-pw",
 		EncryptedMasterKeyForRecovery: "enc-recovery",
 		Device: Device{
@@ -141,5 +143,47 @@ func TestFileStoreRejectsStaleChangesAcrossReload(t *testing.T) {
 	}
 	if pull.Changes[0].ChangeID != "change-2" {
 		t.Fatalf("expected latest change to survive reload, got %s", pull.Changes[0].ChangeID)
+	}
+}
+
+func TestFileStorePersistsRecoveryVerifier(t *testing.T) {
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "state.json")
+
+	store, err := NewFileStore(filePath)
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	_, err = store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	reloadedStore, err := NewFileStore(filePath)
+	if err != nil {
+		t.Fatalf("reload file store: %v", err)
+	}
+
+	session, err := reloadedStore.Recover(RecoveryRequest{
+		Email:            "user@example.com",
+		RecoveryVerifier: "rec-proof",
+	})
+	if err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	if session.SessionToken == "" {
+		t.Fatal("expected recovery to return a session token")
 	}
 }

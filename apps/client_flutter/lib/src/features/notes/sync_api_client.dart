@@ -35,6 +35,7 @@ class SyncApiClient {
       <String, dynamic>{
         'email': email,
         'passwordVerifier': bootstrapMaterial.passwordVerifier,
+        'recoveryVerifier': bootstrapMaterial.recoveryVerifier,
         'encryptedMasterKeyForPassword':
             bootstrapMaterial.encryptedMasterKeyForPassword,
         'encryptedMasterKeyForRecovery':
@@ -95,6 +96,43 @@ class SyncApiClient {
       encryptedMasterKeyForPassword: encryptedMasterKeyForPassword,
       encryptedMasterKeyForRecovery:
           body['encryptedMasterKeyForRecovery'] as String? ?? '',
+      masterKeyMaterial: masterKeyMaterial,
+      recoveryKeyHint: body['recoveryKeyHint'] as String? ?? '',
+    );
+  }
+
+  Future<SyncSession> recover({
+    required Uri baseUri,
+    required String email,
+    required String recoveryKey,
+  }) async {
+    final response = await _post(
+      baseUri,
+      '/v1/auth/recover',
+      <String, dynamic>{
+        'email': email,
+        'recoveryVerifier':
+            await _cryptoService.recoveryVerifierForKey(recoveryKey),
+      },
+    );
+
+    final body = _decodeJson(response);
+    final encryptedMasterKeyForRecovery =
+        body['encryptedMasterKeyForRecovery'] as String? ?? '';
+    final masterKeyMaterial = encryptedMasterKeyForRecovery.isEmpty
+        ? ''
+        : await _cryptoService.unwrapMasterKeyWithRecovery(
+            recoveryKey: recoveryKey,
+            encryptedMasterKeyForRecovery: encryptedMasterKeyForRecovery,
+          );
+
+    return SyncSession(
+      accountId: body['accountId'] as String,
+      sessionToken: body['sessionToken'] as String,
+      email: email,
+      encryptedMasterKeyForPassword:
+          body['encryptedMasterKeyForPassword'] as String? ?? '',
+      encryptedMasterKeyForRecovery: encryptedMasterKeyForRecovery,
       masterKeyMaterial: masterKeyMaterial,
       recoveryKeyHint: body['recoveryKeyHint'] as String? ?? '',
     );

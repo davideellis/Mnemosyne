@@ -19,6 +19,7 @@ type accountRecord struct {
 	AccountID                     string
 	Email                         string
 	PasswordVerifier              string
+	RecoveryVerifier              string
 	EncryptedMasterKeyForPassword string
 	EncryptedMasterKeyForRecovery string
 	RecoveryKeyHint               string
@@ -74,12 +75,29 @@ func (s *MemoryStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error
 		AccountID:                     accountID,
 		Email:                         req.Email,
 		PasswordVerifier:              req.PasswordVerifier,
+		RecoveryVerifier:              req.RecoveryVerifier,
 		EncryptedMasterKeyForPassword: req.EncryptedMasterKeyForPassword,
 		EncryptedMasterKeyForRecovery: req.EncryptedMasterKeyForRecovery,
 		RecoveryKeyHint:               req.RecoveryKeyHint,
 		Devices:                       map[string]Device{req.Device.DeviceID: req.Device},
 	}
 	s.sessions[sessionToken] = accountID
+
+	return authSessionForAccount(sessionToken, s.account), nil
+}
+
+func (s *MemoryStore) Recover(req RecoveryRequest) (AuthSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.account == nil ||
+		s.account.Email != req.Email ||
+		s.account.RecoveryVerifier != req.RecoveryVerifier {
+		return AuthSession{}, ErrInvalidCredentials
+	}
+
+	sessionToken := sessionTokenForCount(len(s.sessions) + 1)
+	s.sessions[sessionToken] = s.account.AccountID
 
 	return authSessionForAccount(sessionToken, s.account), nil
 }

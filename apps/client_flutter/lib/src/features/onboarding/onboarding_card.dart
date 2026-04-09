@@ -12,6 +12,7 @@ class OnboardingCard extends StatelessWidget {
     required this.isAuthenticating,
     required this.onBootstrap,
     required this.onLogin,
+    required this.onRecover,
     super.key,
   });
 
@@ -23,6 +24,7 @@ class OnboardingCard extends StatelessWidget {
   final bool isAuthenticating;
   final Future<void> Function() onBootstrap;
   final Future<void> Function() onLogin;
+  final Future<void> Function() onRecover;
 
   @override
   Widget build(BuildContext context) {
@@ -94,6 +96,21 @@ class OnboardingCard extends StatelessWidget {
                         side: const BorderSide(color: Colors.white70),
                       ),
                       child: const Text('Sign in'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: isAuthenticating ? null : onRecover,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white54),
+                      ),
+                      child: const Text('Use recovery key'),
                     ),
                   ),
                 ],

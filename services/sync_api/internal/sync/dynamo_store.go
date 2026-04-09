@@ -73,12 +73,36 @@ func (s *DynamoStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error
 		AccountID:                     accountID,
 		Email:                         req.Email,
 		PasswordVerifier:              req.PasswordVerifier,
+		RecoveryVerifier:              req.RecoveryVerifier,
 		EncryptedMasterKeyForPassword: req.EncryptedMasterKeyForPassword,
 		EncryptedMasterKeyForRecovery: req.EncryptedMasterKeyForRecovery,
 		RecoveryKeyHint:               req.RecoveryKeyHint,
 		Devices:                       map[string]Device{req.Device.DeviceID: req.Device},
 	}
 	s.state.Sessions[sessionToken] = accountID
+
+	if err := s.save(); err != nil {
+		return AuthSession{}, err
+	}
+
+	return authSessionForAccount(sessionToken, s.state.Account), nil
+}
+
+func (s *DynamoStore) Recover(req RecoveryRequest) (AuthSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.load(); err != nil {
+		return AuthSession{}, err
+	}
+	if s.state.Account == nil ||
+		s.state.Account.Email != req.Email ||
+		s.state.Account.RecoveryVerifier != req.RecoveryVerifier {
+		return AuthSession{}, ErrInvalidCredentials
+	}
+
+	sessionToken := sessionTokenForCount(len(s.state.Sessions) + 1)
+	s.state.Sessions[sessionToken] = s.state.Account.AccountID
 
 	if err := s.save(); err != nil {
 		return AuthSession{}, err

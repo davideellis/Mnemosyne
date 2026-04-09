@@ -8,12 +8,14 @@ import 'package:cryptography/cryptography.dart';
 class BootstrapKeyMaterial {
   const BootstrapKeyMaterial({
     required this.passwordVerifier,
+    required this.recoveryVerifier,
     required this.encryptedMasterKeyForPassword,
     required this.encryptedMasterKeyForRecovery,
     required this.masterKeyMaterial,
   });
 
   final String passwordVerifier;
+  final String recoveryVerifier;
   final String encryptedMasterKeyForPassword;
   final String encryptedMasterKeyForRecovery;
   final String masterKeyMaterial;
@@ -73,6 +75,7 @@ class SyncCryptoService {
         email: email,
         password: password,
       ),
+      recoveryVerifier: await recoveryVerifierForKey(recoveryKey),
       encryptedMasterKeyForPassword: await _wrapKey(
         masterKey,
         wrappingKey: passwordKey,
@@ -85,6 +88,15 @@ class SyncCryptoService {
       ),
       masterKeyMaterial: _encodeBytes(masterKey),
     );
+  }
+
+  Future<String> recoveryVerifierForKey(String recoveryKey) async {
+    final recoveryVerifierKey = await _deriveKey(
+      _normalizeRecoveryKey(recoveryKey),
+      salt: utf8.encode('mnemosyne-recovery-verifier'),
+      context: 'recovery-verifier',
+    );
+    return _passwordVerifier(recoveryVerifierKey);
   }
 
   Future<String> passwordVerifierForCredentials({
@@ -136,6 +148,24 @@ class SyncCryptoService {
       encryptedMetadata: encryptedMetadata,
       encryptedPayload: encryptedPayload,
     );
+  }
+
+  Future<String> unwrapMasterKeyWithRecovery({
+    required String recoveryKey,
+    required String encryptedMasterKeyForRecovery,
+  }) async {
+    final envelope = _decodeEnvelope(encryptedMasterKeyForRecovery);
+    final recoveryDerivedKey = await _deriveKey(
+      _normalizeRecoveryKey(recoveryKey),
+      salt: _decodeBytes(envelope['salt'] as String? ?? ''),
+      context: 'recovery',
+      iterations: (envelope['iterations'] as num?)?.toInt() ?? _kdfIterations,
+    );
+    final masterKey = await _decryptEnvelope(
+      envelope: envelope,
+      secretKeyBytes: recoveryDerivedKey,
+    );
+    return _encodeBytes(masterKey);
   }
 
   Future<DecryptedNotePayload> decryptNote({

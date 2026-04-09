@@ -16,6 +16,7 @@ func TestBootstrapAndLogin(t *testing.T) {
 	bootstrapBody := sync.AccountBootstrapRequest{
 		Email:                         "user@example.com",
 		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
 		EncryptedMasterKeyForPassword: "enc-pw",
 		EncryptedMasterKeyForRecovery: "enc-recovery",
 		RecoveryKeyHint:               "first pet",
@@ -48,6 +49,39 @@ func TestBootstrapAndLogin(t *testing.T) {
 	}
 }
 
+func TestRecover(t *testing.T) {
+	store := sync.NewMemoryStore()
+	server := NewServer(store)
+
+	_, err := store.Bootstrap(sync.AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		RecoveryKeyHint:               "first pet",
+		Device: sync.Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := newJSONRequest(t, http.MethodPost, "/v1/auth/recover", sync.RecoveryRequest{
+		Email:            "user@example.com",
+		RecoveryVerifier: "rec-proof",
+	})
+	server.Routes().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+}
+
 func TestPushThenPull(t *testing.T) {
 	store := sync.NewMemoryStore()
 	server := NewServer(store)
@@ -55,6 +89,7 @@ func TestPushThenPull(t *testing.T) {
 	session, err := store.Bootstrap(sync.AccountBootstrapRequest{
 		Email:                         "user@example.com",
 		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
 		EncryptedMasterKeyForPassword: "enc-pw",
 		EncryptedMasterKeyForRecovery: "enc-recovery",
 		Device: sync.Device{
@@ -122,6 +157,7 @@ func TestPushIgnoresStaleChangeForSameObject(t *testing.T) {
 	session, err := store.Bootstrap(sync.AccountBootstrapRequest{
 		Email:                         "user@example.com",
 		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
 		EncryptedMasterKeyForPassword: "enc-pw",
 		EncryptedMasterKeyForRecovery: "enc-recovery",
 		Device: sync.Device{

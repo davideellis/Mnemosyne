@@ -11,6 +11,7 @@ import (
 type Store interface {
 	Bootstrap(req sync.AccountBootstrapRequest) (sync.AuthSession, error)
 	Login(req sync.LoginRequest) (sync.AuthSession, error)
+	Recover(req sync.RecoveryRequest) (sync.AuthSession, error)
 	RegisterDevice(req sync.DeviceRegistrationRequest) (sync.Device, error)
 	Pull(req sync.SyncPullRequest) (sync.PullResponse, error)
 	Push(req sync.SyncPushRequest) (sync.PullResponse, error)
@@ -30,11 +31,30 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("POST /v1/account/bootstrap", s.handleBootstrap)
 	mux.HandleFunc("POST /v1/auth/login", s.handleLogin)
+	mux.HandleFunc("POST /v1/auth/recover", s.handleRecover)
 	mux.HandleFunc("POST /v1/devices/register", s.handleRegisterDevice)
 	mux.HandleFunc("POST /v1/sync/pull", s.handlePull)
 	mux.HandleFunc("POST /v1/sync/push", s.handlePush)
 	mux.HandleFunc("POST /v1/trash/restore", s.handleRestoreTrash)
 	return withJSON(mux)
+}
+
+func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
+	var req sync.RecoveryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	session, err := s.store.Recover(req)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, sync.ErrInvalidCredentials) {
+			status = http.StatusUnauthorized
+		}
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, session)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {

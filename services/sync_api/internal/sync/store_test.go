@@ -8,6 +8,7 @@ func TestMemoryStoreRejectsStaleChanges(t *testing.T) {
 	session, err := store.Bootstrap(AccountBootstrapRequest{
 		Email:                         "user@example.com",
 		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
 		EncryptedMasterKeyForPassword: "enc-pw",
 		EncryptedMasterKeyForRecovery: "enc-recovery",
 		Device: Device{
@@ -76,5 +77,36 @@ func TestShouldAcceptChangeUsesChangeIDAsTieBreaker(t *testing.T) {
 	}
 	if shouldAcceptChange(incoming, current) {
 		t.Fatal("expected lexically older change ID to lose timestamp tie")
+	}
+}
+
+func TestMemoryStoreRecoversWithRecoveryVerifier(t *testing.T) {
+	store := NewMemoryStore()
+
+	_, err := store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	session, err := store.Recover(RecoveryRequest{
+		Email:            "user@example.com",
+		RecoveryVerifier: "rec-proof",
+	})
+	if err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	if session.SessionToken == "" {
+		t.Fatal("expected recovery to return a session token")
 	}
 }

@@ -9,6 +9,7 @@ type Device struct {
 type AccountBootstrapRequest struct {
 	Email                         string `json:"email"`
 	PasswordVerifier              string `json:"passwordVerifier"`
+	RecoveryVerifier              string `json:"recoveryVerifier"`
 	EncryptedMasterKeyForPassword string `json:"encryptedMasterKeyForPassword"`
 	EncryptedMasterKeyForRecovery string `json:"encryptedMasterKeyForRecovery"`
 	RecoveryKeyHint               string `json:"recoveryKeyHint"`
@@ -18,6 +19,11 @@ type AccountBootstrapRequest struct {
 type LoginRequest struct {
 	Email            string `json:"email"`
 	PasswordVerifier string `json:"passwordVerifier"`
+}
+
+type RecoveryRequest struct {
+	Email            string `json:"email"`
+	RecoveryVerifier string `json:"recoveryVerifier"`
 }
 
 type DeviceRegistrationRequest struct {

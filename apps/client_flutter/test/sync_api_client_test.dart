@@ -79,6 +79,44 @@ void main() {
     expect(session.masterKeyMaterial, bootstrapMaterial.masterKeyMaterial);
   });
 
+  test('recover unwraps a persisted master key from the recovery response', () async {
+    final cryptoService = SyncCryptoService();
+    final bootstrapMaterial = await cryptoService.createBootstrapMaterial(
+      email: 'demo@mnemosyne.local',
+      password: 'password',
+      recoveryKey: 'AAAA-BBBB-CCCC-DDDD',
+    );
+
+    final client = SyncApiClient(
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/v1/auth/recover');
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'accountId': 'acct_local',
+            'sessionToken': 'session_recovery',
+            'encryptedMasterKeyForPassword':
+                bootstrapMaterial.encryptedMasterKeyForPassword,
+            'encryptedMasterKeyForRecovery':
+                bootstrapMaterial.encryptedMasterKeyForRecovery,
+            'recoveryKeyHint': 'saved-locally',
+          }),
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      }),
+      cryptoService: cryptoService,
+    );
+
+    final session = await client.recover(
+      baseUri: Uri.parse('http://127.0.0.1:8080'),
+      email: 'demo@mnemosyne.local',
+      recoveryKey: 'AAAA-BBBB-CCCC-DDDD',
+    );
+
+    expect(session.sessionToken, 'session_recovery');
+    expect(session.masterKeyMaterial, bootstrapMaterial.masterKeyMaterial);
+  });
+
   test('syncVault pushes notes then pulls decrypted updates', () async {
     final cryptoService = SyncCryptoService();
     final bootstrapMaterial = await cryptoService.createBootstrapMaterial(

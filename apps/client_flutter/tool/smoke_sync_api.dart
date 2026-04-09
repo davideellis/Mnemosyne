@@ -10,6 +10,7 @@ Future<void> main(List<String> args) async {
   final password = options['password'];
   final recoveryKey = options['recovery-key'] ?? 'TEST-KEY1-TEST-KEY2';
   final bootstrap = options.containsKey('bootstrap');
+  final recover = options.containsKey('recover');
 
   if (baseUrl == null || email == null || password == null) {
     stderr.writeln(
@@ -34,11 +35,17 @@ Future<void> main(List<String> args) async {
           deviceName: 'Smoke Runner',
           platform: Platform.operatingSystem,
         )
-      : await client.login(
-          baseUri: baseUri,
-          email: email,
-          password: password,
-        );
+      : recover
+          ? await client.recover(
+              baseUri: baseUri,
+              email: email,
+              recoveryKey: recoveryKey,
+            )
+          : await client.login(
+              baseUri: baseUri,
+              email: email,
+              password: password,
+            );
 
   final objectId = 'smoke-${DateTime.now().toUtc().millisecondsSinceEpoch}';
   final relativePath = 'Smoke/$objectId.md';

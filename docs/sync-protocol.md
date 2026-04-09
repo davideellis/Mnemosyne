@@ -43,6 +43,10 @@ Request:
 
 Returns a session token plus the wrapped master-key material needed for the client to recover the vault key locally.
 
+### `POST /v1/auth/recover`
+
+Returns a session token plus the wrapped master-key material needed for the client to recover the vault key with the recovery key.
+
 ### `POST /v1/devices/register`
 
 Registers a new device through recovery-key flow or an approval flow.
@@ -99,6 +103,8 @@ Bootstrap and login responses return:
 ```
 
 The server stores wrapped key material, but it must not have enough information to decrypt note contents on its own.
+
+Bootstrap requests also store verifier material for password-based auth and recovery-key-based auth. Recovery auth validates the recovery verifier and returns the wrapped recovery-key envelope without exposing plaintext note data.
 
 ## Conflict Handling
 
