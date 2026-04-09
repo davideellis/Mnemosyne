@@ -55,6 +55,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   Map<String, String> _knownNoteDigests = <String, String>{};
   String? _knownSettingsDigest;
   Map<String, String> _knownTrashDigests = <String, String>{};
+  String? _selectedFolderFilter;
   WorkspaceSettings _settings = const WorkspaceSettings();
   String _syncCursor = '';
   String? _syncMessage;
@@ -937,6 +938,20 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   }
 
   Future<void> _openCommandPalette() async {
+    final noteCommands = _filteredNotes(_snapshot?.notes ?? const <VaultNote>[])
+        .take(12)
+        .map(
+          (note) => _WorkspaceCommand(
+            label: 'Open ${note.title}',
+            shortcutLabel: note.relativePath,
+            icon: Icons.description_outlined,
+            onSelected: () async {
+              _selectNote(note);
+            },
+          ),
+        )
+        .toList(growable: false);
+
     final commands = <_WorkspaceCommand>[
       _WorkspaceCommand(
         label: 'Create note',
@@ -982,6 +997,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         icon: Icons.folder_open,
         onSelected: _openVaultFromInput,
       ),
+      ...noteCommands,
     ];
 
     final selected = await showDialog<_WorkspaceCommand>(
@@ -1184,6 +1200,10 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         !_selectedNoteIsTrashed;
 
     _snapshot = snapshot;
+    if (_selectedFolderFilter != null &&
+        !snapshot.folders.contains(_selectedFolderFilter)) {
+      _selectedFolderFilter = null;
+    }
     _selectedNote = nextSelectedNote;
     _selectedNoteIsTrashed = nextSelectedIsTrashed;
     _vaultPathController.text = snapshot.rootPath;
@@ -1361,6 +1381,10 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
               unawaited(_openCommandPalette()),
           const SingleActivator(LogicalKeyboardKey.keyK, meta: true): () =>
               unawaited(_openCommandPalette()),
+          const SingleActivator(LogicalKeyboardKey.keyP, control: true): () =>
+              unawaited(_openCommandPalette()),
+          const SingleActivator(LogicalKeyboardKey.keyP, meta: true): () =>
+              unawaited(_openCommandPalette()),
           const SingleActivator(LogicalKeyboardKey.keyN, control: true): () =>
               unawaited(_createNote()),
           const SingleActivator(LogicalKeyboardKey.keyN, meta: true): () =>
@@ -1457,13 +1481,39 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                               Expanded(
                                 child: ListView(
                                   children: [
+                                    ListTile(
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero,
+                                      selected: _selectedFolderFilter == null,
+                                      leading: const Icon(Icons.notes_outlined),
+                                      title: const Text('All notes'),
+                                      trailing: Text(
+                                        '${_countNotesInFolder(snapshot?.notes ?? const <VaultNote>[], null)}',
+                                      ),
+                                      onTap: () {
+                                        setState(() {
+                                          _selectedFolderFilter = null;
+                                        });
+                                      },
+                                    ),
                                     for (final folder in selectedFolders)
                                       ListTile(
                                         dense: true,
                                         contentPadding: EdgeInsets.zero,
+                                        selected:
+                                            _selectedFolderFilter == folder,
                                         title: Text(folder),
                                         leading: const Icon(
-                                            Icons.folder_open_outlined),
+                                          Icons.folder_open_outlined,
+                                        ),
+                                        trailing: Text(
+                                          '${_countNotesInFolder(snapshot?.notes ?? const <VaultNote>[], folder)}',
+                                        ),
+                                        onTap: () {
+                                          setState(() {
+                                            _selectedFolderFilter = folder;
+                                          });
+                                        },
                                       ),
                                   ],
                                 ),
@@ -1617,11 +1667,14 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   }
 
   List<VaultNote> _filteredNotes(List<VaultNote> source) {
-    if (_searchQuery.isEmpty) {
-      return source;
-    }
-
     return source.where((note) {
+      if (_selectedFolderFilter != null &&
+          !_noteMatchesFolder(note, _selectedFolderFilter!)) {
+        return false;
+      }
+      if (_searchQuery.isEmpty) {
+        return true;
+      }
       final haystack = [
         note.title,
         note.relativePath,
@@ -1631,6 +1684,18 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       ].join('\n').toLowerCase();
       return haystack.contains(_searchQuery);
     }).toList(growable: false);
+  }
+
+  bool _noteMatchesFolder(VaultNote note, String folder) {
+    return note.relativePath == folder ||
+        note.relativePath.startsWith('$folder/');
+  }
+
+  int _countNotesInFolder(List<VaultNote> notes, String? folder) {
+    if (folder == null) {
+      return notes.length;
+    }
+    return notes.where((note) => _noteMatchesFolder(note, folder)).length;
   }
 }
 
