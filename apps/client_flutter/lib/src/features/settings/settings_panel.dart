@@ -30,7 +30,7 @@ class SettingsPanel extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Container(
-      color: const Color(0xFFF0EBDC),
+      color: theme.colorScheme.surfaceContainerHigh,
       padding: const EdgeInsets.all(20),
       child: ListView(
         children: [
@@ -131,15 +131,18 @@ class SettingsPanel extends StatelessWidget {
             ),
             _SettingTile(
               title: 'Backlinks',
-              subtitle: note!.backlinks.isEmpty
-                  ? 'No backlinks yet'
-                  : note!.backlinks.join(', '),
+              subtitle: settings.backlinksEnabled
+                  ? (note!.backlinks.isEmpty
+                      ? 'No backlinks yet'
+                      : note!.backlinks.join(', '))
+                  : 'Disabled for this workspace',
               icon: Icons.call_split_outlined,
             ),
             const SizedBox(height: 16),
             _GraphCard(
               selectedNote: note!,
               notes: notes,
+              settings: settings,
             ),
           ],
         ],
@@ -152,22 +155,22 @@ class _GraphCard extends StatelessWidget {
   const _GraphCard({
     required this.selectedNote,
     required this.notes,
+    required this.settings,
   });
 
   final VaultNote selectedNote;
   final List<VaultNote> notes;
+  final WorkspaceSettings settings;
 
   @override
   Widget build(BuildContext context) {
-    final noteTitles = notes.map((note) => note.title).toSet();
-    final linkedTitles = <String>{
-      ...selectedNote.wikilinks,
-      ...selectedNote.backlinks,
-    }.where(noteTitles.contains).toList()
-      ..sort();
+    final linkedTitles = _graphNodeLabels(
+      selectedNote: selectedNote,
+      notes: notes,
+      settings: settings,
+    );
 
     return Card(
-      color: Colors.white,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -194,13 +197,56 @@ class _GraphCard extends StatelessWidget {
             Text(
               linkedTitles.isEmpty
                   ? 'No linked notes yet.'
-                  : 'Showing ${linkedTitles.length} connected notes from this device.',
+                  : 'Showing ${linkedTitles.length} connected notes within depth ${settings.graphDepth}.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
         ),
       ),
     );
+  }
+
+  List<String> _graphNodeLabels({
+    required VaultNote selectedNote,
+    required List<VaultNote> notes,
+    required WorkspaceSettings settings,
+  }) {
+    final noteByTitle = <String, VaultNote>{
+      for (final note in notes) note.title: note,
+    };
+    final visited = <String>{selectedNote.title};
+    final labels = <String>{};
+    var frontier = <String>{selectedNote.title};
+
+    for (var depth = 0; depth < settings.graphDepth; depth++) {
+      if (frontier.isEmpty) {
+        break;
+      }
+
+      final nextFrontier = <String>{};
+      for (final title in frontier) {
+        final note = noteByTitle[title];
+        if (note == null) {
+          continue;
+        }
+
+        final neighbors = <String>{
+          ...note.wikilinks.where(noteByTitle.containsKey),
+          if (settings.backlinksEnabled)
+            ...note.backlinks.where(noteByTitle.containsKey),
+        };
+        for (final neighbor in neighbors) {
+          if (visited.add(neighbor)) {
+            labels.add(neighbor);
+            nextFrontier.add(neighbor);
+          }
+        }
+      }
+      frontier = nextFrontier;
+    }
+
+    final sorted = labels.toList()..sort();
+    return sorted.take(14).toList(growable: false);
   }
 }
 
@@ -218,7 +264,6 @@ class _SettingTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      color: Colors.white,
       child: ListTile(
         leading: Icon(icon),
         title: Text(title),
@@ -246,7 +291,6 @@ class _ToggleTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      color: Colors.white,
       child: SwitchListTile(
         value: value,
         onChanged: onChanged,
@@ -278,7 +322,6 @@ class _ChoiceTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      color: Colors.white,
       child: ListTile(
         leading: Icon(icon),
         title: Text(title),

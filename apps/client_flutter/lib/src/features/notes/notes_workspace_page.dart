@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../widgets/status_chip.dart';
 import '../onboarding/onboarding_card.dart';
@@ -677,6 +678,63 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     );
   }
 
+  Future<void> _openCommandPalette() async {
+    final commands = <_WorkspaceCommand>[
+      _WorkspaceCommand(
+        label: 'Create note',
+        shortcutLabel: 'Ctrl/Cmd+N',
+        icon: Icons.note_add_outlined,
+        onSelected: _createNote,
+      ),
+      _WorkspaceCommand(
+        label: 'Save note',
+        shortcutLabel: 'Ctrl/Cmd+S',
+        icon: Icons.save_outlined,
+        enabled: _selectedNote != null && !_selectedNoteIsTrashed && !_isSaving,
+        onSelected: _saveSelectedNote,
+      ),
+      _WorkspaceCommand(
+        label: 'Rename note',
+        shortcutLabel: 'Ctrl/Cmd+R',
+        icon: Icons.drive_file_rename_outline,
+        enabled:
+            _selectedNote != null && !_selectedNoteIsTrashed && !_isRenaming,
+        onSelected: _renameSelectedNote,
+      ),
+      _WorkspaceCommand(
+        label: _selectedNoteIsTrashed ? 'Restore note' : 'Move note to trash',
+        shortcutLabel: 'Ctrl/Cmd+D',
+        icon: _selectedNoteIsTrashed
+            ? Icons.restore_from_trash_outlined
+            : Icons.delete_outline,
+        enabled: _selectedNote != null && !_isDeleting,
+        onSelected:
+            _selectedNoteIsTrashed ? _restoreSelectedNote : _deleteSelectedNote,
+      ),
+      _WorkspaceCommand(
+        label: 'Sync now',
+        shortcutLabel: 'Ctrl/Cmd+Shift+S',
+        icon: Icons.cloud_upload_outlined,
+        enabled: _session != null && !_isSyncing,
+        onSelected: _syncVault,
+      ),
+      _WorkspaceCommand(
+        label: 'Open vault',
+        shortcutLabel: 'Ctrl/Cmd+O',
+        icon: Icons.folder_open,
+        onSelected: _openVaultFromInput,
+      ),
+    ];
+
+    final selected = await showDialog<_WorkspaceCommand>(
+      context: context,
+      builder: (context) => _CommandPaletteDialog(commands: commands),
+    );
+    if (selected != null && mounted) {
+      await selected.onSelected();
+    }
+  }
+
   Future<void> _persistState() {
     final snapshot = _snapshot;
     return _appStateRepository.save(
@@ -917,9 +975,34 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     };
   }
 
+  ThemeData _workspaceTheme(BuildContext context) {
+    final systemBrightness = MediaQuery.platformBrightnessOf(context);
+    final brightness = switch (_settings.themeMode) {
+      'light' => Brightness.light,
+      'dark' => Brightness.dark,
+      _ => systemBrightness,
+    };
+    final scheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF1C6E5B),
+      brightness: brightness,
+    );
+    return ThemeData(
+      colorScheme: scheme,
+      scaffoldBackgroundColor: brightness == Brightness.dark
+          ? const Color(0xFF11161A)
+          : const Color(0xFFF5F2E8),
+      cardTheme: CardThemeData(
+        color: brightness == Brightness.dark
+            ? const Color(0xFF1A2329)
+            : Colors.white,
+      ),
+      useMaterial3: true,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final theme = _workspaceTheme(context);
     final snapshot = _snapshot;
     final notes = _filteredNotes(snapshot?.notes ?? const []);
     final trashedNotes = _filteredNotes(snapshot?.trashedNotes ?? const []);
@@ -929,190 +1012,245 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         ? 'Opening vault'
         : (_statusLabel ?? (_session == null ? 'Local only' : 'Up to date'));
 
-    return Scaffold(
-      body: SafeArea(
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : Row(
-                children: [
-                  Container(
-                    width: 280,
-                    padding: const EdgeInsets.all(20),
-                    color: const Color(0xFFE5E0D2),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Mnemosyne',
-                          style: theme.textTheme.headlineMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        StatusChip(label: statusLabel),
-                        const SizedBox(height: 20),
-                        Text(
-                          'Vault',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(snapshot?.rootPath ?? ''),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _vaultPathController,
-                          decoration: const InputDecoration(
-                            labelText: 'Vault path',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        FilledButton.tonalIcon(
-                          onPressed: _openVaultFromInput,
-                          icon: const Icon(Icons.folder_open),
-                          label: const Text('Open vault'),
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          'Folders',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Expanded(
-                          child: ListView(
-                            children: [
-                              for (final folder in selectedFolders)
-                                ListTile(
-                                  dense: true,
-                                  contentPadding: EdgeInsets.zero,
-                                  title: Text(folder),
-                                  leading:
-                                      const Icon(Icons.folder_open_outlined),
-                                ),
-                            ],
-                          ),
-                        ),
-                        if (trashedNotes.isNotEmpty) ...[
-                          const SizedBox(height: 12),
+    return Theme(
+      data: theme,
+      child: CallbackShortcuts(
+        bindings: <ShortcutActivator, VoidCallback>{
+          const SingleActivator(LogicalKeyboardKey.keyK, control: true):
+              () => unawaited(_openCommandPalette()),
+          const SingleActivator(LogicalKeyboardKey.keyK, meta: true):
+              () => unawaited(_openCommandPalette()),
+          const SingleActivator(LogicalKeyboardKey.keyN, control: true):
+              () => unawaited(_createNote()),
+          const SingleActivator(LogicalKeyboardKey.keyN, meta: true):
+              () => unawaited(_createNote()),
+          const SingleActivator(LogicalKeyboardKey.keyO, control: true):
+              () => unawaited(_openVaultFromInput()),
+          const SingleActivator(LogicalKeyboardKey.keyO, meta: true):
+              () => unawaited(_openVaultFromInput()),
+          const SingleActivator(LogicalKeyboardKey.keyS, control: true):
+              () => unawaited(_saveSelectedNote()),
+          const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
+              () => unawaited(_saveSelectedNote()),
+          const SingleActivator(
+            LogicalKeyboardKey.keyS,
+            control: true,
+            shift: true,
+          ): () => unawaited(_syncVault()),
+          const SingleActivator(
+            LogicalKeyboardKey.keyS,
+            meta: true,
+            shift: true,
+          ): () => unawaited(_syncVault()),
+          const SingleActivator(LogicalKeyboardKey.keyR, control: true):
+              () => unawaited(_renameSelectedNote()),
+          const SingleActivator(LogicalKeyboardKey.keyR, meta: true):
+              () => unawaited(_renameSelectedNote()),
+          const SingleActivator(LogicalKeyboardKey.keyD, control: true):
+              () => unawaited(
+                    _selectedNoteIsTrashed
+                        ? _restoreSelectedNote()
+                        : _deleteSelectedNote(),
+                  ),
+          const SingleActivator(LogicalKeyboardKey.keyD, meta: true):
+              () => unawaited(
+                    _selectedNoteIsTrashed
+                        ? _restoreSelectedNote()
+                        : _deleteSelectedNote(),
+                  ),
+        },
+        child: Focus(
+          autofocus: true,
+          child: Scaffold(
+            body: SafeArea(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : Row(
+                  children: [
+                    Container(
+                      width: 280,
+                      padding: const EdgeInsets.all(20),
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Text(
-                            'Trash',
+                            'Mnemosyne',
+                            style: theme.textTheme.headlineMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          StatusChip(label: statusLabel),
+                          const SizedBox(height: 20),
+                          Text(
+                            'Vault',
                             style: theme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                           const SizedBox(height: 8),
-                          SizedBox(
-                            height: 140,
+                          Text(snapshot?.rootPath ?? ''),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _vaultPathController,
+                            decoration: const InputDecoration(
+                              labelText: 'Vault path',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          FilledButton.tonalIcon(
+                            onPressed: _openVaultFromInput,
+                            icon: const Icon(Icons.folder_open),
+                            label: const Text('Open vault'),
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            'Folders',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Expanded(
                             child: ListView(
                               children: [
-                                for (final note in trashedNotes)
+                                for (final folder in selectedFolders)
                                   ListTile(
                                     dense: true,
                                     contentPadding: EdgeInsets.zero,
-                                    title: Text(note.title),
-                                    subtitle: Text(note.relativePath),
-                                    leading: const Icon(Icons.delete_outline),
-                                    selected: _selectedNoteIsTrashed &&
-                                        selectedNote?.objectId == note.objectId,
-                                    onTap: () => _selectTrashedNote(note),
+                                    title: Text(folder),
+                                    leading:
+                                        const Icon(Icons.folder_open_outlined),
                                   ),
                               ],
                             ),
                           ),
+                          if (trashedNotes.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              'Trash',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              height: 140,
+                              child: ListView(
+                                children: [
+                                  for (final note in trashedNotes)
+                                    ListTile(
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero,
+                                      title: Text(note.title),
+                                      subtitle: Text(note.relativePath),
+                                      leading: const Icon(Icons.delete_outline),
+                                      selected: _selectedNoteIsTrashed &&
+                                          selectedNote?.objectId ==
+                                              note.objectId,
+                                      onTap: () => _selectTrashedNote(note),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                          OnboardingCard(
+                            apiBaseUrlController: _apiBaseUrlController,
+                            emailController: _emailController,
+                            passwordController: _passwordController,
+                            session: _session,
+                            syncMessage: _syncMessage,
+                            isAuthenticating: _isAuthenticating,
+                            onBootstrap: _bootstrapAccount,
+                            onLogin: _login,
+                            onRecover: _recover,
+                          ),
                         ],
-                        const SizedBox(height: 12),
-                        OnboardingCard(
-                          apiBaseUrlController: _apiBaseUrlController,
-                          emailController: _emailController,
-                          passwordController: _passwordController,
-                          session: _session,
-                          syncMessage: _syncMessage,
-                          isAuthenticating: _isAuthenticating,
-                          onBootstrap: _bootstrapAccount,
-                          onLogin: _login,
-                          onRecover: _recover,
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        _TopBar(
-                          searchController: _searchController,
-                          isCreating: _isCreating,
-                          isRenaming: _isRenaming,
-                          isSaving: _isSaving,
-                          isDeleting: _isDeleting,
-                          isSyncing: _isSyncing,
-                          selectedNoteIsTrashed: _selectedNoteIsTrashed,
-                          onCreate: _createNote,
-                          onRename: _renameSelectedNote,
+                    Expanded(
+                      child: Column(
+                        children: [
+                          _TopBar(
+                            searchController: _searchController,
+                            isCreating: _isCreating,
+                            isRenaming: _isRenaming,
+                            isSaving: _isSaving,
+                            isDeleting: _isDeleting,
+                            isSyncing: _isSyncing,
+                            selectedNoteIsTrashed: _selectedNoteIsTrashed,
+                            onCreate: _createNote,
+                            onRename: _renameSelectedNote,
                           onSave: _saveSelectedNote,
                           onDeleteOrRestore: _selectedNoteIsTrashed
                               ? _restoreSelectedNote
                               : _deleteSelectedNote,
+                          onCommandPalette: _openCommandPalette,
                           onSync: _syncVault,
                         ),
-                        Expanded(
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              final isCompact = constraints.maxWidth < 1100;
-                              final notesPane = _NotesListPane(
-                                notes: notes,
-                                trashedNotes: trashedNotes,
-                                selectedNoteId: selectedNote?.objectId,
-                                selectedNoteIsTrashed: _selectedNoteIsTrashed,
-                                onSelect: _selectNote,
-                                onSelectTrash: _selectTrashedNote,
-                              );
-                              final editorPane = _EditorPane(
-                                note: selectedNote,
-                                isTrashed: _selectedNoteIsTrashed,
-                                controller: _editorController,
-                              );
+                          Expanded(
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final isCompact = constraints.maxWidth < 1100;
+                                final notesPane = _NotesListPane(
+                                  notes: notes,
+                                  trashedNotes: trashedNotes,
+                                  selectedNoteId: selectedNote?.objectId,
+                                  selectedNoteIsTrashed: _selectedNoteIsTrashed,
+                                  backlinksEnabled: _settings.backlinksEnabled,
+                                  onSelect: _selectNote,
+                                  onSelectTrash: _selectTrashedNote,
+                                );
+                                final editorPane = _EditorPane(
+                                  note: selectedNote,
+                                  isTrashed: _selectedNoteIsTrashed,
+                                  controller: _editorController,
+                                );
 
-                              if (isCompact) {
-                                return Column(
+                                if (isCompact) {
+                                  return Column(
+                                    children: [
+                                      Expanded(child: notesPane),
+                                      const Divider(height: 1),
+                                      Expanded(child: editorPane),
+                                    ],
+                                  );
+                                }
+
+                                return Row(
                                   children: [
-                                    Expanded(child: notesPane),
-                                    const Divider(height: 1),
+                                    SizedBox(width: 320, child: notesPane),
                                     Expanded(child: editorPane),
+                                    SizedBox(
+                                      width: 320,
+                                      child: SettingsPanel(
+                                        note: selectedNote,
+                                        noteIsTrashed: _selectedNoteIsTrashed,
+                                        notes: snapshot?.notes ??
+                                            const <VaultNote>[],
+                                        trashedNotes: snapshot?.trashedNotes ??
+                                            const <VaultNote>[],
+                                        noteCount: snapshot?.notes.length ?? 0,
+                                        settings: _settings,
+                                        onSettingsChanged: _updateSettings,
+                                      ),
+                                    ),
                                   ],
                                 );
-                              }
-
-                              return Row(
-                                children: [
-                                  SizedBox(width: 320, child: notesPane),
-                                  Expanded(child: editorPane),
-                                  SizedBox(
-                                    width: 320,
-                                    child: SettingsPanel(
-                                      note: selectedNote,
-                                      noteIsTrashed: _selectedNoteIsTrashed,
-                                      notes: snapshot?.notes ??
-                                          const <VaultNote>[],
-                                      trashedNotes: snapshot?.trashedNotes ??
-                                          const <VaultNote>[],
-                                      noteCount: snapshot?.notes.length ?? 0,
-                                      settings: _settings,
-                                      onSettingsChanged: _updateSettings,
-                                    ),
-                                  ),
-                                ],
-                              );
-                            },
+                              },
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1339,6 +1477,7 @@ class _TopBar extends StatelessWidget {
     required this.onRename,
     required this.onSave,
     required this.onDeleteOrRestore,
+    required this.onCommandPalette,
     required this.onSync,
   });
 
@@ -1353,6 +1492,7 @@ class _TopBar extends StatelessWidget {
   final VoidCallback onRename;
   final VoidCallback onSave;
   final VoidCallback onDeleteOrRestore;
+  final VoidCallback onCommandPalette;
   final VoidCallback onSync;
 
   @override
@@ -1408,6 +1548,12 @@ class _TopBar extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           FilledButton.tonalIcon(
+            onPressed: onCommandPalette,
+            icon: const Icon(Icons.keyboard_command_key),
+            label: const Text('Command'),
+          ),
+          const SizedBox(width: 12),
+          FilledButton.tonalIcon(
             onPressed: isSyncing ? null : onSync,
             icon: Icon(isSyncing ? Icons.sync : Icons.cloud_upload_outlined),
             label: Text(isSyncing ? 'Syncing' : 'Sync now'),
@@ -1418,12 +1564,117 @@ class _TopBar extends StatelessWidget {
   }
 }
 
+class _WorkspaceCommand {
+  const _WorkspaceCommand({
+    required this.label,
+    required this.shortcutLabel,
+    required this.icon,
+    required this.onSelected,
+    this.enabled = true,
+  });
+
+  final String label;
+  final String shortcutLabel;
+  final IconData icon;
+  final Future<void> Function() onSelected;
+  final bool enabled;
+}
+
+class _CommandPaletteDialog extends StatefulWidget {
+  const _CommandPaletteDialog({
+    required this.commands,
+  });
+
+  final List<_WorkspaceCommand> commands;
+
+  @override
+  State<_CommandPaletteDialog> createState() => _CommandPaletteDialogState();
+}
+
+class _CommandPaletteDialogState extends State<_CommandPaletteDialog> {
+  final TextEditingController _queryController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _queryController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filteredCommands = widget.commands.where((command) {
+      if (_query.isEmpty) {
+        return true;
+      }
+      final haystack =
+          '${command.label} ${command.shortcutLabel}'.toLowerCase();
+      return haystack.contains(_query);
+    }).toList(growable: false);
+
+    return AlertDialog(
+      title: const Text('Command palette'),
+      content: SizedBox(
+        width: 560,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _queryController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'Search commands',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _query = value.trim().toLowerCase();
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: filteredCommands.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final command = filteredCommands[index];
+                  return Card(
+                    child: ListTile(
+                      enabled: command.enabled,
+                      leading: Icon(command.icon),
+                      title: Text(command.label),
+                      subtitle: Text(command.shortcutLabel),
+                      onTap: command.enabled
+                          ? () => Navigator.of(context).pop(command)
+                          : null,
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+}
+
 class _NotesListPane extends StatelessWidget {
   const _NotesListPane({
     required this.notes,
     required this.trashedNotes,
     required this.selectedNoteId,
     required this.selectedNoteIsTrashed,
+    required this.backlinksEnabled,
     required this.onSelect,
     required this.onSelectTrash,
   });
@@ -1432,6 +1683,7 @@ class _NotesListPane extends StatelessWidget {
   final List<VaultNote> trashedNotes;
   final String? selectedNoteId;
   final bool selectedNoteIsTrashed;
+  final bool backlinksEnabled;
   final ValueChanged<VaultNote> onSelect;
   final ValueChanged<VaultNote> onSelectTrash;
 
@@ -1449,6 +1701,7 @@ class _NotesListPane extends StatelessWidget {
         for (final note in notes) ...[
           _NoteCard(
             note: note,
+            backlinksEnabled: backlinksEnabled,
             isSelected:
                 !selectedNoteIsTrashed && note.objectId == selectedNoteId,
             onTap: () => onSelect(note),
@@ -1467,6 +1720,7 @@ class _NotesListPane extends StatelessWidget {
             _NoteCard(
               note: note,
               trashed: true,
+              backlinksEnabled: backlinksEnabled,
               isSelected:
                   selectedNoteIsTrashed && note.objectId == selectedNoteId,
               onTap: () => onSelectTrash(note),
@@ -1482,12 +1736,14 @@ class _NotesListPane extends StatelessWidget {
 class _NoteCard extends StatelessWidget {
   const _NoteCard({
     required this.note,
+    required this.backlinksEnabled,
     required this.isSelected,
     required this.onTap,
     this.trashed = false,
   });
 
   final VaultNote note;
+  final bool backlinksEnabled;
   final bool isSelected;
   final VoidCallback onTap;
   final bool trashed;
@@ -1513,7 +1769,11 @@ class _NoteCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             Text(
-              trashed ? 'trashed' : '${note.backlinks.length} backlinks',
+              trashed
+                  ? 'trashed'
+                  : (backlinksEnabled
+                      ? '${note.backlinks.length} backlinks'
+                      : 'backlinks off'),
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
