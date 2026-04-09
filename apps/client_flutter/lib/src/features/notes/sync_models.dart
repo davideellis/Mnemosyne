@@ -16,6 +16,28 @@ class SyncSession {
   final String encryptedMasterKeyForRecovery;
   final String masterKeyMaterial;
   final String recoveryKeyHint;
+
+  SyncSession copyWith({
+    String? accountId,
+    String? sessionToken,
+    String? email,
+    String? encryptedMasterKeyForPassword,
+    String? encryptedMasterKeyForRecovery,
+    String? masterKeyMaterial,
+    String? recoveryKeyHint,
+  }) {
+    return SyncSession(
+      accountId: accountId ?? this.accountId,
+      sessionToken: sessionToken ?? this.sessionToken,
+      email: email ?? this.email,
+      encryptedMasterKeyForPassword:
+          encryptedMasterKeyForPassword ?? this.encryptedMasterKeyForPassword,
+      encryptedMasterKeyForRecovery:
+          encryptedMasterKeyForRecovery ?? this.encryptedMasterKeyForRecovery,
+      masterKeyMaterial: masterKeyMaterial ?? this.masterKeyMaterial,
+      recoveryKeyHint: recoveryKeyHint ?? this.recoveryKeyHint,
+    );
+  }
 }
 
 class SyncPushChange {

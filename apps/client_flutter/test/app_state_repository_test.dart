@@ -36,7 +36,7 @@ void main() {
     expect(restored.syncCursor, state.syncCursor);
     expect(restored.vaultRootPath, state.vaultRootPath);
     expect(restored.session?.sessionToken, state.session?.sessionToken);
-    expect(restored.session?.masterKeyMaterial, state.session?.masterKeyMaterial);
+    expect(restored.session?.masterKeyMaterial, isEmpty);
   });
 
   test('repository load returns empty state when no file exists', () async {

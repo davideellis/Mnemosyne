@@ -43,7 +43,6 @@ class PersistedAppState {
                   sessionValue.encryptedMasterKeyForPassword,
               'encryptedMasterKeyForRecovery':
                   sessionValue.encryptedMasterKeyForRecovery,
-              'masterKeyMaterial': sessionValue.masterKeyMaterial,
               'recoveryKeyHint': sessionValue.recoveryKeyHint,
             },
     };

@@ -8,6 +8,7 @@ import '../onboarding/onboarding_card.dart';
 import '../settings/settings_panel.dart';
 import 'app_state_repository.dart';
 import 'local_vault_repository.dart';
+import 'secure_key_repository.dart';
 import 'sync_api_client.dart';
 import 'sync_models.dart';
 import 'vault_models.dart';
@@ -22,6 +23,7 @@ class NotesWorkspacePage extends StatefulWidget {
 class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   final LocalVaultRepository _repository = LocalVaultRepository();
   final AppStateRepository _appStateRepository = AppStateRepository();
+  final SecureKeyRepository _secureKeyRepository = SecureKeyRepository();
   final SyncApiClient _syncApiClient = SyncApiClient();
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _editorController = TextEditingController();
@@ -76,6 +78,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
 
   Future<void> _loadVault() async {
     final persistedState = await _appStateRepository.load();
+    final hydratedSession = await _hydrateSession(persistedState.session);
     final snapshot = persistedState.vaultRootPath == null
         ? await _repository.loadInitialVault()
         : await _repository.loadVaultAtPath(persistedState.vaultRootPath!);
@@ -88,7 +91,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       _snapshot = snapshot;
       _selectedNote = initialNote;
       _selectedNoteIsTrashed = false;
-      _session = persistedState.session;
+      _session = hydratedSession;
       _knownNoteDigests =
           Map<String, String>.from(persistedState.knownNoteDigests);
       _knownTrashDigests =
@@ -100,13 +103,35 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       _emailController.text = persistedState.email ?? _emailController.text;
       _isLoading = false;
       _statusLabel =
-          persistedState.session == null ? 'Loaded locally' : 'Signed in';
-      _syncMessage = persistedState.session == null
+          hydratedSession == null ? 'Loaded locally' : 'Signed in';
+      _syncMessage = hydratedSession == null
           ? 'Local vault ready.'
-          : 'Restored signed-in session for ${persistedState.session!.email}.';
+          : 'Restored signed-in session for ${hydratedSession.email}.';
       _editorController.text = initialNote?.markdown ?? '';
     });
     _startWatchingVault(snapshot.rootPath);
+  }
+
+  Future<SyncSession?> _hydrateSession(SyncSession? session) async {
+    if (session == null) {
+      return null;
+    }
+
+    if (session.masterKeyMaterial.isNotEmpty) {
+      await _secureKeyRepository.saveMasterKey(
+        accountId: session.accountId,
+        masterKeyMaterial: session.masterKeyMaterial,
+      );
+      return session;
+    }
+
+    final storedMasterKey =
+        await _secureKeyRepository.loadMasterKey(session.accountId);
+    if (storedMasterKey == null || storedMasterKey.isEmpty) {
+      return session;
+    }
+
+    return session.copyWith(masterKeyMaterial: storedMasterKey);
   }
 
   Future<void> _saveSelectedNote() async {
@@ -395,6 +420,10 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
             ? 'Account created. Save your recovery key before you continue.'
             : 'Loaded account ${session.email}';
       });
+      await _secureKeyRepository.saveMasterKey(
+        accountId: session.accountId,
+        masterKeyMaterial: session.masterKeyMaterial,
+      );
       await _persistState();
       if (bootstrap && recoveryKey != null && mounted) {
         await _showRecoveryKeyDialog(recoveryKey);
