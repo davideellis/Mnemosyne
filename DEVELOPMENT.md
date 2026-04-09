@@ -109,6 +109,12 @@ API design principles:
 - Keep request/response shapes stable and documented
 - Make local development runnable without AWS where practical
 
+Windows note:
+
+- Windows Smart App Control can block unsigned Go test executables
+- On this machine, prefer running Go tests through WSL instead of disabling Smart App Control
+- Use `.\scripts\test-go.ps1` from the repo root for the default backend test path
+
 ## AWS Guidance
 
 CloudFormation MVP goals:
