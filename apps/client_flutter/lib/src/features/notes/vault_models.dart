@@ -40,10 +40,12 @@ class VaultSnapshot {
   const VaultSnapshot({
     required this.rootPath,
     required this.notes,
+    required this.trashedNotes,
     required this.folders,
   });
 
   final String rootPath;
   final List<VaultNote> notes;
+  final List<VaultNote> trashedNotes;
   final List<String> folders;
 }

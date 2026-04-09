@@ -11,6 +11,7 @@ void main() {
     final snapshot = await repository.loadInitialVault();
 
     expect(snapshot.notes, hasLength(3));
+    expect(snapshot.trashedNotes, isEmpty);
     expect(snapshot.folders, contains('Journal'));
     expect(snapshot.folders, contains('Projects'));
 
@@ -51,6 +52,7 @@ void main() {
     );
 
     expect(snapshot.notes, hasLength(1));
+    expect(snapshot.trashedNotes, isEmpty);
     expect(snapshot.notes.first.title, 'Remote Note');
     expect(snapshot.notes.first.tags, contains('synced'));
   });
@@ -68,6 +70,7 @@ void main() {
 
     expect(snapshot.rootPath, root.path);
     expect(snapshot.notes, isEmpty);
+    expect(snapshot.trashedNotes, isEmpty);
     expect(snapshot.folders, isEmpty);
   });
 
@@ -126,10 +129,53 @@ void main() {
     );
 
     expect(updatedSnapshot.notes.length, snapshot.notes.length - 1);
+    expect(updatedSnapshot.trashedNotes, hasLength(1));
     expect(
       updatedSnapshot.notes
           .where((candidate) => candidate.objectId == note.objectId),
       isEmpty,
     );
+    expect(updatedSnapshot.trashedNotes.first.objectId, note.objectId);
+  });
+
+  test('restoreNote moves a trashed note back into the vault', () async {
+    final repository = LocalVaultRepository();
+    final root =
+        await Directory.systemTemp.createTemp('mnemosyne_restore_vault');
+    addTearDown(() async {
+      if (await root.exists()) {
+        await root.delete(recursive: true);
+      }
+    });
+
+    final initialSnapshot = await repository.applyRemoteChanges(
+      rootPath: root.path,
+      changes: const <RemoteNoteChange>[
+        RemoteNoteChange(
+          changeId: 'change-restore',
+          objectId: 'Journal/restore-me.md',
+          operation: 'upsert',
+          relativePath: 'Journal/restore-me.md',
+          title: 'Restore Me',
+          markdown: '# Restore Me',
+          tags: <String>[],
+          wikilinks: <String>[],
+        ),
+      ],
+    );
+
+    final deletedSnapshot = await repository.deleteNote(
+      rootPath: root.path,
+      note: initialSnapshot.notes.first,
+    );
+
+    final restoredSnapshot = await repository.restoreNote(
+      rootPath: root.path,
+      note: deletedSnapshot.trashedNotes.first,
+    );
+
+    expect(restoredSnapshot.notes, hasLength(1));
+    expect(restoredSnapshot.trashedNotes, isEmpty);
+    expect(restoredSnapshot.notes.first.objectId, 'Journal/restore-me.md');
   });
 }

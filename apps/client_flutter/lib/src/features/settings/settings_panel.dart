@@ -7,13 +7,17 @@ import '../notes/vault_models.dart';
 class SettingsPanel extends StatelessWidget {
   const SettingsPanel({
     required this.note,
+    required this.noteIsTrashed,
     required this.notes,
+    required this.trashedNotes,
     required this.noteCount,
     super.key,
   });
 
   final VaultNote? note;
+  final bool noteIsTrashed;
   final List<VaultNote> notes;
+  final List<VaultNote> trashedNotes;
   final int noteCount;
 
   @override
@@ -62,6 +66,11 @@ class SettingsPanel extends StatelessWidget {
             subtitle: 'Synced across devices',
             icon: Icons.delete_outline,
           ),
+          _SettingTile(
+            title: 'Trashed Notes',
+            subtitle: '${trashedNotes.length} in synced trash',
+            icon: Icons.restore_from_trash_outlined,
+          ),
           if (note != null) ...[
             const SizedBox(height: 24),
             Text(
@@ -75,6 +84,13 @@ class SettingsPanel extends StatelessWidget {
               title: 'Path',
               subtitle: note!.relativePath,
               icon: Icons.folder_outlined,
+            ),
+            _SettingTile(
+              title: 'State',
+              subtitle: noteIsTrashed ? 'In trash' : 'Active',
+              icon: noteIsTrashed
+                  ? Icons.delete_outline
+                  : Icons.description_outlined,
             ),
             _SettingTile(
               title: 'Tags',

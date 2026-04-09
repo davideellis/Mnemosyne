@@ -32,9 +32,11 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   final TextEditingController _passwordController =
       TextEditingController(text: 'demo-password');
   StreamSubscription<VaultSnapshot>? _vaultWatchSubscription;
+  Timer? _autoSyncTimer;
 
   VaultSnapshot? _snapshot;
   VaultNote? _selectedNote;
+  bool _selectedNoteIsTrashed = false;
   SyncSession? _session;
   bool _isLoading = true;
   bool _isCreating = false;
@@ -44,6 +46,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   bool _isAuthenticating = false;
   String? _statusLabel;
   Map<String, String> _knownNoteDigests = <String, String>{};
+  Map<String, String> _knownTrashDigests = <String, String>{};
   String _syncCursor = '';
   String? _syncMessage;
   String _searchQuery = '';
@@ -58,6 +61,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
 
   @override
   void dispose() {
+    _autoSyncTimer?.cancel();
     _vaultWatchSubscription?.cancel();
     _searchController.dispose();
     _editorController.dispose();
@@ -81,10 +85,12 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     setState(() {
       _snapshot = snapshot;
       _selectedNote = initialNote;
+      _selectedNoteIsTrashed = false;
       _session = persistedState.session;
-      _knownNoteDigests = Map<String, String>.from(
-        persistedState.knownNoteDigests,
-      );
+      _knownNoteDigests =
+          Map<String, String>.from(persistedState.knownNoteDigests);
+      _knownTrashDigests =
+          Map<String, String>.from(persistedState.knownTrashDigests);
       _syncCursor = persistedState.syncCursor ?? '';
       _apiBaseUrlController.text =
           persistedState.apiBaseUrl ?? _apiBaseUrlController.text;
@@ -104,7 +110,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   Future<void> _saveSelectedNote() async {
     final snapshot = _snapshot;
     final note = _selectedNote;
-    if (snapshot == null || note == null) {
+    if (snapshot == null || note == null || _selectedNoteIsTrashed) {
       return;
     }
 
@@ -123,23 +129,17 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       return;
     }
 
-    VaultNote? updatedNote;
-    for (final candidate in updatedSnapshot.notes) {
-      if (candidate.objectId == note.objectId) {
-        updatedNote = candidate;
-        break;
-      }
-    }
-
     setState(() {
-      _snapshot = updatedSnapshot;
-      _selectedNote = updatedNote ??
-          (updatedSnapshot.notes.isEmpty ? null : updatedSnapshot.notes.first);
-      _editorController.text = _selectedNote?.markdown ?? '';
-      _statusLabel = 'Saved locally';
+      _replaceSnapshot(
+        updatedSnapshot,
+        statusLabel: 'Saved locally',
+        preferredObjectId: note.objectId,
+        preferTrashed: false,
+      );
       _isSaving = false;
     });
     await _persistState();
+    _scheduleAutoSync();
   }
 
   Future<void> _createNote() async {
@@ -178,6 +178,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         _isCreating = false;
       });
       await _persistState();
+      _scheduleAutoSync();
     } catch (error) {
       if (!mounted) {
         return;
@@ -193,13 +194,13 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   Future<void> _deleteSelectedNote() async {
     final snapshot = _snapshot;
     final note = _selectedNote;
-    if (snapshot == null || note == null) {
+    if (snapshot == null || note == null || _selectedNoteIsTrashed) {
       return;
     }
 
     setState(() {
       _isDeleting = true;
-      _statusLabel = 'Deleting locally';
+      _statusLabel = 'Moving to trash';
     });
 
     final updatedSnapshot = await _repository.deleteNote(
@@ -212,10 +213,50 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     }
 
     setState(() {
-      _replaceSnapshot(updatedSnapshot, statusLabel: 'Deleted locally');
+      _replaceSnapshot(
+        updatedSnapshot,
+        statusLabel: 'Moved to trash',
+        preferredObjectId: note.objectId,
+        preferTrashed: true,
+      );
       _isDeleting = false;
     });
     await _persistState();
+    _scheduleAutoSync();
+  }
+
+  Future<void> _restoreSelectedNote() async {
+    final snapshot = _snapshot;
+    final note = _selectedNote;
+    if (snapshot == null || note == null || !_selectedNoteIsTrashed) {
+      return;
+    }
+
+    setState(() {
+      _isDeleting = true;
+      _statusLabel = 'Restoring locally';
+    });
+
+    final updatedSnapshot = await _repository.restoreNote(
+      rootPath: snapshot.rootPath,
+      note: note,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _replaceSnapshot(
+        updatedSnapshot,
+        statusLabel: 'Restored locally',
+        preferredObjectId: note.objectId,
+        preferTrashed: false,
+      );
+      _isDeleting = false;
+    });
+    await _persistState();
+    _scheduleAutoSync();
   }
 
   Future<void> _openVaultFromInput() async {
@@ -349,14 +390,12 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       }
 
       setState(() {
-        _replaceSnapshot(
-          refreshedSnapshot,
-          statusLabel: 'Up to date',
-        );
+        _replaceSnapshot(refreshedSnapshot, statusLabel: 'Up to date');
         _knownNoteDigests = _buildKnownDigests(refreshedSnapshot);
+        _knownTrashDigests = _buildTrashDigests(refreshedSnapshot);
         _syncCursor = result.cursor;
         _syncMessage =
-            'Pushed ${result.pushedCount} notes, pulled ${result.pulledCount} changes.';
+            'Pushed ${result.pushedCount} changes, pulled ${result.pulledCount} changes.';
       });
       await _persistState();
     } catch (error) {
@@ -384,7 +423,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
 
   void _handleEditorChange() {
     final selectedNote = _selectedNote;
-    if (selectedNote == null) {
+    if (selectedNote == null || _selectedNoteIsTrashed) {
       return;
     }
     final isDirty = _editorController.text != selectedNote.markdown;
@@ -399,8 +438,18 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   void _selectNote(VaultNote note) {
     setState(() {
       _selectedNote = note;
+      _selectedNoteIsTrashed = false;
       _editorController.text = note.markdown;
       _statusLabel = 'Loaded locally';
+    });
+  }
+
+  void _selectTrashedNote(VaultNote note) {
+    setState(() {
+      _selectedNote = note;
+      _selectedNoteIsTrashed = true;
+      _editorController.text = note.markdown;
+      _statusLabel = 'Loaded from trash';
     });
   }
 
@@ -421,6 +470,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         email: _emailController.text.trim(),
         session: _session,
         knownNoteDigests: _knownNoteDigests,
+        knownTrashDigests: _knownTrashDigests,
         syncCursor: _syncCursor,
         vaultRootPath: snapshot?.rootPath,
       ),
@@ -443,30 +493,83 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       setState(() {
         _replaceSnapshot(snapshot, statusLabel: 'Detected local change');
       });
+      _scheduleAutoSync();
+    });
+  }
+
+  void _scheduleAutoSync() {
+    if (_session == null) {
+      return;
+    }
+
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = Timer(const Duration(seconds: 2), () {
+      if (!mounted || _isSyncing) {
+        return;
+      }
+      final snapshot = _snapshot;
+      if (snapshot == null || _buildSyncChanges(snapshot).isEmpty) {
+        return;
+      }
+
+      setState(() {
+        _statusLabel = 'Queued auto sync';
+      });
+      unawaited(_syncVault());
     });
   }
 
   void _replaceSnapshot(
     VaultSnapshot snapshot, {
     String? statusLabel,
+    String? preferredObjectId,
+    bool? preferTrashed,
   }) {
-    final previousNote = _selectedNote;
+    final targetObjectId = preferredObjectId ?? _selectedNote?.objectId;
+    final targetIsTrashed = preferTrashed ?? _selectedNoteIsTrashed;
+
     VaultNote? matchingNote;
-    if (previousNote != null) {
-      for (final note in snapshot.notes) {
-        if (note.objectId == previousNote.objectId) {
+    var nextSelectedIsTrashed = false;
+    if (targetObjectId != null) {
+      final preferredCollection =
+          targetIsTrashed ? snapshot.trashedNotes : snapshot.notes;
+      for (final note in preferredCollection) {
+        if (note.objectId == targetObjectId) {
           matchingNote = note;
+          nextSelectedIsTrashed = targetIsTrashed;
           break;
         }
       }
+      if (matchingNote == null) {
+        final fallbackCollection =
+            targetIsTrashed ? snapshot.notes : snapshot.trashedNotes;
+        for (final note in fallbackCollection) {
+          if (note.objectId == targetObjectId) {
+            matchingNote = note;
+            nextSelectedIsTrashed = !targetIsTrashed;
+            break;
+          }
+        }
+      }
     }
-    final nextSelectedNote =
-        matchingNote ?? (snapshot.notes.isEmpty ? null : snapshot.notes.first);
-    final shouldPreserveEditor =
-        previousNote != null && _editorController.text != previousNote.markdown;
+
+    final nextSelectedNote = matchingNote ??
+        (snapshot.notes.isNotEmpty
+            ? snapshot.notes.first
+            : (snapshot.trashedNotes.isEmpty
+                ? null
+                : snapshot.trashedNotes.first));
+    if (matchingNote == null && nextSelectedNote != null) {
+      nextSelectedIsTrashed = snapshot.notes.isEmpty;
+    }
+
+    final shouldPreserveEditor = _selectedNote != null &&
+        _editorController.text != _selectedNote!.markdown &&
+        !_selectedNoteIsTrashed;
 
     _snapshot = snapshot;
     _selectedNote = nextSelectedNote;
+    _selectedNoteIsTrashed = nextSelectedIsTrashed;
     _vaultPathController.text = snapshot.rootPath;
     if (!shouldPreserveEditor) {
       _editorController.text = nextSelectedNote?.markdown ?? '';
@@ -476,6 +579,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
 
   List<SyncPushChange> _buildSyncChanges(VaultSnapshot snapshot) {
     final nextDigests = _buildKnownDigests(snapshot);
+    final nextTrashDigests = _buildTrashDigests(snapshot);
     final changes = <SyncPushChange>[];
 
     for (final note in snapshot.notes) {
@@ -497,20 +601,41 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       );
     }
 
-    for (final objectId in _knownNoteDigests.keys) {
-      if (nextDigests.containsKey(objectId)) {
+    for (final note in snapshot.trashedNotes) {
+      final nextDigest = nextTrashDigests[note.objectId];
+      final knownDigest = _knownTrashDigests[note.objectId];
+      if (nextDigest == null || nextDigest == knownDigest) {
         continue;
       }
-
       changes.add(
         SyncPushChange(
-          objectId: objectId,
+          objectId: note.objectId,
           operation: 'trash',
-          relativePath: objectId,
-          title: objectId,
-          markdown: '',
-          tags: const <String>[],
-          wikilinks: const <String>[],
+          relativePath: note.relativePath,
+          title: note.title,
+          markdown: note.markdown,
+          tags: note.tags,
+          wikilinks: note.wikilinks,
+        ),
+      );
+    }
+
+    for (final objectId in _knownTrashDigests.keys) {
+      if (nextTrashDigests.containsKey(objectId) ||
+          !nextDigests.containsKey(objectId)) {
+        continue;
+      }
+      final note =
+          snapshot.notes.firstWhere((item) => item.objectId == objectId);
+      changes.add(
+        SyncPushChange(
+          objectId: note.objectId,
+          operation: 'restore',
+          relativePath: note.relativePath,
+          title: note.title,
+          markdown: note.markdown,
+          tags: note.tags,
+          wikilinks: note.wikilinks,
         ),
       );
     }
@@ -525,11 +650,19 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     };
   }
 
+  Map<String, String> _buildTrashDigests(VaultSnapshot snapshot) {
+    return <String, String>{
+      for (final note in snapshot.trashedNotes)
+        note.objectId: LocalVaultRepository.noteDigest(note),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final snapshot = _snapshot;
     final notes = _filteredNotes(snapshot?.notes ?? const []);
+    final trashedNotes = _filteredNotes(snapshot?.trashedNotes ?? const []);
     final selectedNote = _selectedNote;
     final selectedFolders = snapshot?.folders ?? const <String>[];
     final statusLabel = _isLoading
@@ -602,6 +735,34 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                             ],
                           ),
                         ),
+                        if (trashedNotes.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            'Trash',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            height: 140,
+                            child: ListView(
+                              children: [
+                                for (final note in trashedNotes)
+                                  ListTile(
+                                    dense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                    title: Text(note.title),
+                                    subtitle: Text(note.relativePath),
+                                    leading: const Icon(Icons.delete_outline),
+                                    selected: _selectedNoteIsTrashed &&
+                                        selectedNote?.objectId == note.objectId,
+                                    onTap: () => _selectTrashedNote(note),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 12),
                         OnboardingCard(
                           apiBaseUrlController: _apiBaseUrlController,
@@ -619,115 +780,60 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                   Expanded(
                     child: Column(
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 16,
-                          ),
-                          decoration: const BoxDecoration(
-                            border: Border(
-                              bottom: BorderSide(color: Color(0xFFD7D0C1)),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: SearchBar(
-                                  controller: _searchController,
-                                  hintText: 'Search notes on this device',
-                                  leading: const Icon(Icons.search),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              FilledButton.icon(
-                                onPressed: _isCreating ? null : _createNote,
-                                icon: Icon(
-                                  _isCreating
-                                      ? Icons.sync
-                                      : Icons.note_add_outlined,
-                                ),
-                                label:
-                                    Text(_isCreating ? 'Creating' : 'New note'),
-                              ),
-                              const SizedBox(width: 12),
-                              FilledButton.icon(
-                                onPressed: _isSaving ? null : _saveSelectedNote,
-                                icon: Icon(_isSaving
-                                    ? Icons.sync
-                                    : Icons.save_outlined),
-                                label: Text(_isSaving ? 'Saving' : 'Save'),
-                              ),
-                              const SizedBox(width: 12),
-                              FilledButton.tonalIcon(
-                                onPressed:
-                                    _isDeleting ? null : _deleteSelectedNote,
-                                icon: Icon(
-                                  _isDeleting
-                                      ? Icons.sync
-                                      : Icons.delete_outline,
-                                ),
-                                label:
-                                    Text(_isDeleting ? 'Deleting' : 'Delete'),
-                              ),
-                              const SizedBox(width: 12),
-                              FilledButton.tonalIcon(
-                                onPressed: _isSyncing ? null : _syncVault,
-                                icon: Icon(_isSyncing
-                                    ? Icons.sync
-                                    : Icons.cloud_upload_outlined),
-                                label:
-                                    Text(_isSyncing ? 'Syncing' : 'Sync now'),
-                              ),
-                            ],
-                          ),
+                        _TopBar(
+                          searchController: _searchController,
+                          isCreating: _isCreating,
+                          isSaving: _isSaving,
+                          isDeleting: _isDeleting,
+                          isSyncing: _isSyncing,
+                          selectedNoteIsTrashed: _selectedNoteIsTrashed,
+                          onCreate: _createNote,
+                          onSave: _saveSelectedNote,
+                          onDeleteOrRestore: _selectedNoteIsTrashed
+                              ? _restoreSelectedNote
+                              : _deleteSelectedNote,
+                          onSync: _syncVault,
                         ),
                         Expanded(
                           child: LayoutBuilder(
                             builder: (context, constraints) {
                               final isCompact = constraints.maxWidth < 1100;
+                              final notesPane = _NotesListPane(
+                                notes: notes,
+                                trashedNotes: trashedNotes,
+                                selectedNoteId: selectedNote?.objectId,
+                                selectedNoteIsTrashed: _selectedNoteIsTrashed,
+                                onSelect: _selectNote,
+                                onSelectTrash: _selectTrashedNote,
+                              );
+                              final editorPane = _EditorPane(
+                                note: selectedNote,
+                                isTrashed: _selectedNoteIsTrashed,
+                                controller: _editorController,
+                              );
 
                               if (isCompact) {
                                 return Column(
                                   children: [
-                                    Expanded(
-                                      child: _NotesListPane(
-                                        notes: notes,
-                                        selectedNoteId: selectedNote?.objectId,
-                                        onSelect: _selectNote,
-                                      ),
-                                    ),
+                                    Expanded(child: notesPane),
                                     const Divider(height: 1),
-                                    Expanded(
-                                      child: _EditorPane(
-                                        note: selectedNote,
-                                        controller: _editorController,
-                                      ),
-                                    ),
+                                    Expanded(child: editorPane),
                                   ],
                                 );
                               }
 
                               return Row(
                                 children: [
-                                  SizedBox(
-                                    width: 320,
-                                    child: _NotesListPane(
-                                      notes: notes,
-                                      selectedNoteId: selectedNote?.objectId,
-                                      onSelect: _selectNote,
-                                    ),
-                                  ),
-                                  Expanded(
-                                    child: _EditorPane(
-                                      note: selectedNote,
-                                      controller: _editorController,
-                                    ),
-                                  ),
+                                  SizedBox(width: 320, child: notesPane),
+                                  Expanded(child: editorPane),
                                   SizedBox(
                                     width: 320,
                                     child: SettingsPanel(
                                       note: selectedNote,
+                                      noteIsTrashed: _selectedNoteIsTrashed,
                                       notes: snapshot?.notes ??
+                                          const <VaultNote>[],
+                                      trashedNotes: snapshot?.trashedNotes ??
                                           const <VaultNote>[],
                                       noteCount: snapshot?.notes.length ?? 0,
                                     ),
@@ -829,12 +935,8 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
             if (title.isEmpty || relativePath.isEmpty) {
               return;
             }
-
             Navigator.of(context).pop(
-              _NewNoteDraft(
-                title: title,
-                relativePath: relativePath,
-              ),
+              _NewNoteDraft(title: title, relativePath: relativePath),
             );
           },
           child: const Text('Create'),
@@ -844,55 +946,188 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
   }
 }
 
-class _NotesListPane extends StatelessWidget {
-  const _NotesListPane({
-    required this.notes,
-    required this.selectedNoteId,
-    required this.onSelect,
+class _TopBar extends StatelessWidget {
+  const _TopBar({
+    required this.searchController,
+    required this.isCreating,
+    required this.isSaving,
+    required this.isDeleting,
+    required this.isSyncing,
+    required this.selectedNoteIsTrashed,
+    required this.onCreate,
+    required this.onSave,
+    required this.onDeleteOrRestore,
+    required this.onSync,
   });
 
-  final List<VaultNote> notes;
-  final String? selectedNoteId;
-  final ValueChanged<VaultNote> onSelect;
+  final TextEditingController searchController;
+  final bool isCreating;
+  final bool isSaving;
+  final bool isDeleting;
+  final bool isSyncing;
+  final bool selectedNoteIsTrashed;
+  final VoidCallback onCreate;
+  final VoidCallback onSave;
+  final VoidCallback onDeleteOrRestore;
+  final VoidCallback onSync;
 
   @override
   Widget build(BuildContext context) {
-    if (notes.isEmpty) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: Color(0xFFD7D0C1))),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: SearchBar(
+              controller: searchController,
+              hintText: 'Search notes on this device',
+              leading: const Icon(Icons.search),
+            ),
+          ),
+          const SizedBox(width: 12),
+          FilledButton.icon(
+            onPressed: isCreating ? null : onCreate,
+            icon: Icon(isCreating ? Icons.sync : Icons.note_add_outlined),
+            label: Text(isCreating ? 'Creating' : 'New note'),
+          ),
+          const SizedBox(width: 12),
+          FilledButton.icon(
+            onPressed: isSaving || selectedNoteIsTrashed ? null : onSave,
+            icon: Icon(isSaving ? Icons.sync : Icons.save_outlined),
+            label: Text(isSaving ? 'Saving' : 'Save'),
+          ),
+          const SizedBox(width: 12),
+          FilledButton.tonalIcon(
+            onPressed: isDeleting ? null : onDeleteOrRestore,
+            icon: Icon(
+              isDeleting
+                  ? Icons.sync
+                  : (selectedNoteIsTrashed
+                      ? Icons.restore_from_trash_outlined
+                      : Icons.delete_outline),
+            ),
+            label: Text(
+              isDeleting
+                  ? (selectedNoteIsTrashed ? 'Restoring' : 'Deleting')
+                  : (selectedNoteIsTrashed ? 'Restore' : 'Delete'),
+            ),
+          ),
+          const SizedBox(width: 12),
+          FilledButton.tonalIcon(
+            onPressed: isSyncing ? null : onSync,
+            icon: Icon(isSyncing ? Icons.sync : Icons.cloud_upload_outlined),
+            label: Text(isSyncing ? 'Syncing' : 'Sync now'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NotesListPane extends StatelessWidget {
+  const _NotesListPane({
+    required this.notes,
+    required this.trashedNotes,
+    required this.selectedNoteId,
+    required this.selectedNoteIsTrashed,
+    required this.onSelect,
+    required this.onSelectTrash,
+  });
+
+  final List<VaultNote> notes;
+  final List<VaultNote> trashedNotes;
+  final String? selectedNoteId;
+  final bool selectedNoteIsTrashed;
+  final ValueChanged<VaultNote> onSelect;
+  final ValueChanged<VaultNote> onSelectTrash;
+
+  @override
+  Widget build(BuildContext context) {
+    if (notes.isEmpty && trashedNotes.isEmpty) {
       return const Center(
         child: Text('No Markdown notes matched the current search.'),
       );
     }
 
-    return ListView.separated(
+    return ListView(
       padding: const EdgeInsets.all(20),
-      itemCount: notes.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        final note = notes[index];
-        final isSelected = note.objectId == selectedNoteId;
-        return Card(
-          color: isSelected ? const Color(0xFFE9F5EE) : const Color(0xFFFFFBF2),
-          child: ListTile(
+      children: [
+        for (final note in notes) ...[
+          _NoteCard(
+            note: note,
+            isSelected:
+                !selectedNoteIsTrashed && note.objectId == selectedNoteId,
             onTap: () => onSelect(note),
-            title: Text(note.title),
-            subtitle: Text(note.relativePath),
-            trailing: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (note.tags.isNotEmpty)
-                  Text(
-                    '#${note.tags.first}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                Text(
-                  '${note.backlinks.length} backlinks',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
           ),
-        );
-      },
+          const SizedBox(height: 12),
+        ],
+        if (trashedNotes.isNotEmpty) ...[
+          Text(
+            'Trash',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 12),
+          for (final note in trashedNotes) ...[
+            _NoteCard(
+              note: note,
+              trashed: true,
+              isSelected:
+                  selectedNoteIsTrashed && note.objectId == selectedNoteId,
+              onTap: () => onSelectTrash(note),
+            ),
+            const SizedBox(height: 12),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
+class _NoteCard extends StatelessWidget {
+  const _NoteCard({
+    required this.note,
+    required this.isSelected,
+    required this.onTap,
+    this.trashed = false,
+  });
+
+  final VaultNote note;
+  final bool isSelected;
+  final VoidCallback onTap;
+  final bool trashed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: isSelected
+          ? (trashed ? const Color(0xFFF7E7D8) : const Color(0xFFE9F5EE))
+          : const Color(0xFFFFFBF2),
+      child: ListTile(
+        onTap: onTap,
+        title: Text(note.title),
+        subtitle: Text(note.relativePath),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (trashed)
+              const Icon(Icons.delete_outline, size: 18)
+            else if (note.tags.isNotEmpty)
+              Text(
+                '#${note.tags.first}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            Text(
+              trashed ? 'trashed' : '${note.backlinks.length} backlinks',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -900,10 +1135,12 @@ class _NotesListPane extends StatelessWidget {
 class _EditorPane extends StatelessWidget {
   const _EditorPane({
     required this.note,
+    required this.isTrashed,
     required this.controller,
   });
 
   final VaultNote? note;
+  final bool isTrashed;
   final TextEditingController controller;
 
   @override
@@ -930,10 +1167,16 @@ class _EditorPane extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  note!.relativePath,
-                  style: theme.textTheme.bodySmall,
-                ),
+                Text(note!.relativePath, style: theme.textTheme.bodySmall),
+                const SizedBox(height: 8),
+                if (isTrashed)
+                  Text(
+                    'This note is in trash and is read-only until restored.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFF8A5B2C),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 const SizedBox(height: 16),
                 Wrap(
                   spacing: 8,
@@ -951,6 +1194,7 @@ class _EditorPane extends StatelessWidget {
                 Expanded(
                   child: TextField(
                     controller: controller,
+                    readOnly: isTrashed,
                     expands: true,
                     maxLines: null,
                     minLines: null,

@@ -63,8 +63,25 @@ class LocalVaultRepository {
   }) async {
     final file = File(path.join(rootPath, note.relativePath));
     if (await file.exists()) {
-      await file.delete();
+      final trashFile = await _trashFile(rootPath, note.relativePath);
+      await trashFile.parent.create(recursive: true);
+      await file.rename(trashFile.path);
     }
+    return _loadVault(Directory(rootPath));
+  }
+
+  Future<VaultSnapshot> restoreNote({
+    required String rootPath,
+    required VaultNote note,
+  }) async {
+    final trashFile = await _trashFile(rootPath, note.relativePath);
+    if (!await trashFile.exists()) {
+      return _loadVault(Directory(rootPath));
+    }
+
+    final restoredFile = File(path.join(rootPath, note.relativePath));
+    await restoredFile.parent.create(recursive: true);
+    await trashFile.rename(restoredFile.path);
     return _loadVault(Directory(rootPath));
   }
 
@@ -85,15 +102,20 @@ class LocalVaultRepository {
       }
 
       final file = File(notePath);
+      final trashFile = await _trashFile(root.path, change.relativePath);
       switch (change.operation) {
         case 'trash':
           if (await file.exists()) {
-            await file.delete();
+            await trashFile.parent.create(recursive: true);
+            await file.rename(trashFile.path);
           }
           break;
         case 'upsert':
         case 'restore':
         default:
+          if (await trashFile.exists()) {
+            await trashFile.delete();
+          }
           await file.create(recursive: true);
           await file.writeAsString(change.markdown);
           break;
@@ -114,17 +136,16 @@ class LocalVaultRepository {
   }
 
   Future<VaultSnapshot> _loadVault(Directory root) async {
-    final files = await root
-        .list(recursive: true)
-        .where((entity) =>
-            entity is File && entity.path.toLowerCase().endsWith('.md'))
-        .cast<File>()
-        .toList();
+    final files = await _listMarkdownFiles(root);
+    final trashedFiles =
+        await _listMarkdownFiles(await _trashDirectory(root.path));
 
     files.sort((left, right) => left.path.compareTo(right.path));
+    trashedFiles.sort((left, right) => left.path.compareTo(right.path));
 
     final folderSet = <String>{};
     final draftNotes = <_DraftNote>[];
+    final draftTrashedNotes = <_DraftNote>[];
 
     for (final file in files) {
       final relativePath =
@@ -139,6 +160,27 @@ class LocalVaultRepository {
       }
 
       draftNotes.add(
+        _DraftNote(
+          objectId: relativePath,
+          title: title,
+          relativePath: relativePath,
+          markdown: markdown,
+          tags: tags,
+          wikilinks: wikilinks,
+        ),
+      );
+    }
+
+    final trashRoot = await _trashDirectory(root.path);
+    for (final file in trashedFiles) {
+      final relativePath =
+          path.relative(file.path, from: trashRoot.path).replaceAll('\\', '/');
+      final markdown = await file.readAsString();
+      final title = _deriveTitle(relativePath, markdown);
+      final tags = _extractTags(markdown);
+      final wikilinks = _extractWikilinks(markdown);
+
+      draftTrashedNotes.add(
         _DraftNote(
           objectId: relativePath,
           title: title,
@@ -183,12 +225,26 @@ class LocalVaultRepository {
           ),
         )
         .toList(growable: false);
+    final trashedNotes = draftTrashedNotes
+        .map(
+          (note) => VaultNote(
+            objectId: note.objectId,
+            title: note.title,
+            relativePath: note.relativePath,
+            markdown: note.markdown,
+            tags: note.tags,
+            wikilinks: note.wikilinks,
+            backlinks: const <String>[],
+          ),
+        )
+        .toList(growable: false);
 
     final folders = folderSet.toList()..sort();
 
     return VaultSnapshot(
       rootPath: root.path,
       notes: notes,
+      trashedNotes: trashedNotes,
       folders: folders,
     );
   }
@@ -233,6 +289,23 @@ Reference [[Roadmap]] when documenting setup.
       await file.create(recursive: true);
       await file.writeAsString(entry.value.trimLeft());
     }
+  }
+
+  Future<List<File>> _listMarkdownFiles(Directory root) async {
+    if (!await root.exists()) {
+      return <File>[];
+    }
+
+    return root
+        .list(recursive: true)
+        .where(
+          (entity) =>
+              entity is File &&
+              entity.path.toLowerCase().endsWith('.md') &&
+              !_isHiddenVaultPath(entity.path, root.path),
+        )
+        .cast<File>()
+        .toList();
   }
 
   static void _collectFolders(Set<String> folders, String relativeFolder) {
@@ -294,6 +367,21 @@ Reference [[Roadmap]] when documenting setup.
       return null;
     }
     return path.join(rootPath, normalized);
+  }
+
+  static bool _isHiddenVaultPath(String filePath, String rootPath) {
+    final relative =
+        path.relative(filePath, from: rootPath).replaceAll('\\', '/');
+    return relative.startsWith('.mnemosyne/');
+  }
+
+  Future<Directory> _trashDirectory(String rootPath) async {
+    return Directory(path.join(rootPath, '.mnemosyne', 'trash'));
+  }
+
+  Future<File> _trashFile(String rootPath, String relativePath) async {
+    final trashRoot = await _trashDirectory(rootPath);
+    return File(path.join(trashRoot.path, relativePath));
   }
 }
 
