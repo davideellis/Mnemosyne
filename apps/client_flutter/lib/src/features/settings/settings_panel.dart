@@ -151,7 +151,11 @@ class SettingsPanel extends StatelessWidget {
                     ListTile(
                       leading: const Icon(Icons.devices_outlined),
                       title: Text(device.deviceName),
-                      subtitle: Text(device.platform),
+                      subtitle: Text(
+                        device.lastSeenAt == null
+                            ? device.platform
+                            : '${device.platform} • Active ${_formatDeviceSeenAt(device.lastSeenAt!)}',
+                      ),
                     ),
                 ],
               ),
@@ -209,6 +213,22 @@ class SettingsPanel extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatDeviceSeenAt(DateTime value) {
+  final local = value.toLocal();
+  final now = DateTime.now();
+  final difference = now.difference(local);
+  if (difference.inMinutes < 1) {
+    return 'just now';
+  }
+  if (difference.inHours < 1) {
+    return '${difference.inMinutes}m ago';
+  }
+  if (difference.inDays < 1) {
+    return '${difference.inHours}h ago';
+  }
+  return '${local.month}/${local.day}/${local.year}';
 }
 
 class _GraphCard extends StatelessWidget {

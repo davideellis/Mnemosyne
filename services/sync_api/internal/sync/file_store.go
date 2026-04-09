@@ -9,13 +9,13 @@ import (
 )
 
 type fileStoreState struct {
-	Account        *accountRecord        `json:"account"`
-	Sessions       map[string]string     `json:"sessions"`
-	Changes        []SyncChange          `json:"changes"`
-	LatestChanges  map[string]SyncChange `json:"latestChanges"`
+	Account          *accountRecord            `json:"account"`
+	Sessions         map[string]string         `json:"sessions"`
+	Changes          []SyncChange              `json:"changes"`
+	LatestChanges    map[string]SyncChange     `json:"latestChanges"`
 	PendingApprovals map[string]DeviceApproval `json:"pendingApprovals"`
-	PayloadRefs    map[string]string     `json:"payloadRefs"`
-	TrashObjectIDs map[string]bool       `json:"trashObjectIds"`
+	PayloadRefs      map[string]string         `json:"payloadRefs"`
+	TrashObjectIDs   map[string]bool           `json:"trashObjectIds"`
 }
 
 type FileStore struct {
@@ -75,6 +75,7 @@ func (s *FileStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error) 
 
 	accountID := "acct_local"
 	sessionToken := "session_bootstrap"
+	device := touchDevice(req.Device, currentTimestamp())
 	s.state.Account = &accountRecord{
 		AccountID:                     accountID,
 		Email:                         req.Email,
@@ -83,7 +84,7 @@ func (s *FileStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error) 
 		EncryptedMasterKeyForPassword: req.EncryptedMasterKeyForPassword,
 		EncryptedMasterKeyForRecovery: req.EncryptedMasterKeyForRecovery,
 		RecoveryKeyHint:               req.RecoveryKeyHint,
-		Devices:                       map[string]Device{req.Device.DeviceID: req.Device},
+		Devices:                       map[string]Device{device.DeviceID: device},
 	}
 	s.state.Sessions[sessionToken] = accountID
 
@@ -152,13 +153,14 @@ func (s *FileStore) RegisterDevice(req DeviceRegistrationRequest) (Device, error
 	if _, ok := s.state.Sessions[req.SessionToken]; !ok || s.state.Account == nil {
 		return Device{}, ErrInvalidSession
 	}
-	s.state.Account.Devices[req.Device.DeviceID] = req.Device
+	device := touchDevice(req.Device, currentTimestamp())
+	s.state.Account.Devices[device.DeviceID] = device
 
 	if err := s.save(); err != nil {
 		return Device{}, err
 	}
 
-	return req.Device, nil
+	return device, nil
 }
 
 func (s *FileStore) ListDevices(req DeviceListRequest) ([]Device, error) {
@@ -169,11 +171,7 @@ func (s *FileStore) ListDevices(req DeviceListRequest) ([]Device, error) {
 		return nil, ErrInvalidSession
 	}
 
-	devices := make([]Device, 0, len(s.state.Account.Devices))
-	for _, device := range s.state.Account.Devices {
-		devices = append(devices, device)
-	}
-	return devices, nil
+	return sortedDevices(s.state.Account.Devices), nil
 }
 
 func (s *FileStore) StartDeviceApproval(
@@ -221,7 +219,8 @@ func (s *FileStore) ConsumeDeviceApproval(
 		return AuthSession{}, ErrInvalidApproval
 	}
 
-	s.state.Account.Devices[req.Device.DeviceID] = req.Device
+	device := touchDevice(req.Device, currentTimestamp())
+	s.state.Account.Devices[device.DeviceID] = device
 	sessionToken := sessionTokenForCount(len(s.state.Sessions) + 1)
 	s.state.Sessions[sessionToken] = s.state.Account.AccountID
 	delete(s.state.PendingApprovals, req.ApprovalVerifier)
@@ -272,10 +271,12 @@ func (s *FileStore) Push(req SyncPushRequest) (PullResponse, error) {
 		return PullResponse{}, ErrInvalidSession
 	}
 
+	seenAt := currentTimestamp()
 	for _, change := range req.Changes {
 		if change.ChangeID == "" || change.ObjectID == "" {
 			return PullResponse{}, ErrChangeRejected
 		}
+		touchExistingDevice(s.state.Account, change.OriginDeviceID, seenAt)
 		if !shouldAcceptChange(s.state.LatestChanges[change.ObjectID], change) {
 			continue
 		}

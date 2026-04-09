@@ -114,9 +114,11 @@ class RegisteredDevice {
     required this.deviceId,
     required this.deviceName,
     required this.platform,
+    this.lastSeenAt,
   });
 
   final String deviceId;
   final String deviceName;
   final String platform;
+  final DateTime? lastSeenAt;
 }

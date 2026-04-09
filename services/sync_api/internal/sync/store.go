@@ -3,6 +3,7 @@ package sync
 import (
 	"errors"
 	"fmt"
+	"sort"
 	stdsync "sync"
 	"time"
 )
@@ -28,13 +29,13 @@ type accountRecord struct {
 }
 
 type MemoryStore struct {
-	mu             stdsync.Mutex
-	account        *accountRecord
-	sessions       map[string]string
-	changes        []SyncChange
-	latestChanges  map[string]SyncChange
+	mu               stdsync.Mutex
+	account          *accountRecord
+	sessions         map[string]string
+	changes          []SyncChange
+	latestChanges    map[string]SyncChange
 	pendingApprovals map[string]DeviceApproval
-	trashObjectIDs map[string]bool
+	trashObjectIDs   map[string]bool
 }
 
 func sessionTokenForCount(count int) string {
@@ -47,11 +48,51 @@ func restoreChangeID(count int) string {
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		sessions:       map[string]string{},
-		latestChanges:  map[string]SyncChange{},
+		sessions:         map[string]string{},
+		latestChanges:    map[string]SyncChange{},
 		pendingApprovals: map[string]DeviceApproval{},
-		trashObjectIDs: map[string]bool{},
+		trashObjectIDs:   map[string]bool{},
 	}
+}
+
+func currentTimestamp() string {
+	return time.Now().UTC().Format(time.RFC3339)
+}
+
+func touchDevice(device Device, seenAt string) Device {
+	device.LastSeenAt = seenAt
+	return device
+}
+
+func touchExistingDevice(account *accountRecord, deviceID string, seenAt string) {
+	if account == nil || account.Devices == nil || deviceID == "" {
+		return
+	}
+
+	device, ok := account.Devices[deviceID]
+	if !ok {
+		return
+	}
+	device.LastSeenAt = seenAt
+	account.Devices[deviceID] = device
+}
+
+func sortedDevices(devicesByID map[string]Device) []Device {
+	devices := make([]Device, 0, len(devicesByID))
+	for _, device := range devicesByID {
+		devices = append(devices, device)
+	}
+
+	sort.Slice(devices, func(left, right int) bool {
+		if devices[left].LastSeenAt != devices[right].LastSeenAt {
+			return devices[left].LastSeenAt > devices[right].LastSeenAt
+		}
+		if devices[left].DeviceName != devices[right].DeviceName {
+			return devices[left].DeviceName < devices[right].DeviceName
+		}
+		return devices[left].DeviceID < devices[right].DeviceID
+	})
+	return devices
 }
 
 func authSessionForAccount(sessionToken string, account *accountRecord) AuthSession {
@@ -84,6 +125,7 @@ func (s *MemoryStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error
 
 	accountID := "acct_local"
 	sessionToken := "session_bootstrap"
+	device := touchDevice(req.Device, currentTimestamp())
 	s.account = &accountRecord{
 		AccountID:                     accountID,
 		Email:                         req.Email,
@@ -92,7 +134,7 @@ func (s *MemoryStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error
 		EncryptedMasterKeyForPassword: req.EncryptedMasterKeyForPassword,
 		EncryptedMasterKeyForRecovery: req.EncryptedMasterKeyForRecovery,
 		RecoveryKeyHint:               req.RecoveryKeyHint,
-		Devices:                       map[string]Device{req.Device.DeviceID: req.Device},
+		Devices:                       map[string]Device{device.DeviceID: device},
 	}
 	s.sessions[sessionToken] = accountID
 
@@ -147,8 +189,9 @@ func (s *MemoryStore) RegisterDevice(req DeviceRegistrationRequest) (Device, err
 	if _, ok := s.sessions[req.SessionToken]; !ok || s.account == nil {
 		return Device{}, ErrInvalidSession
 	}
-	s.account.Devices[req.Device.DeviceID] = req.Device
-	return req.Device, nil
+	device := touchDevice(req.Device, currentTimestamp())
+	s.account.Devices[device.DeviceID] = device
+	return device, nil
 }
 
 func (s *MemoryStore) ListDevices(req DeviceListRequest) ([]Device, error) {
@@ -159,11 +202,7 @@ func (s *MemoryStore) ListDevices(req DeviceListRequest) ([]Device, error) {
 		return nil, ErrInvalidSession
 	}
 
-	devices := make([]Device, 0, len(s.account.Devices))
-	for _, device := range s.account.Devices {
-		devices = append(devices, device)
-	}
-	return devices, nil
+	return sortedDevices(s.account.Devices), nil
 }
 
 func (s *MemoryStore) StartDeviceApproval(
@@ -207,7 +246,8 @@ func (s *MemoryStore) ConsumeDeviceApproval(
 		return AuthSession{}, ErrInvalidApproval
 	}
 
-	s.account.Devices[req.Device.DeviceID] = req.Device
+	device := touchDevice(req.Device, currentTimestamp())
+	s.account.Devices[device.DeviceID] = device
 	sessionToken := sessionTokenForCount(len(s.sessions) + 1)
 	s.sessions[sessionToken] = s.account.AccountID
 	delete(s.pendingApprovals, req.ApprovalVerifier)
@@ -254,10 +294,12 @@ func (s *MemoryStore) Push(req SyncPushRequest) (PullResponse, error) {
 		return PullResponse{}, ErrInvalidSession
 	}
 
+	seenAt := currentTimestamp()
 	for _, change := range req.Changes {
 		if change.ChangeID == "" || change.ObjectID == "" {
 			return PullResponse{}, ErrChangeRejected
 		}
+		touchExistingDevice(s.account, change.OriginDeviceID, seenAt)
 		if !shouldAcceptChange(s.latestChanges[change.ObjectID], change) {
 			continue
 		}

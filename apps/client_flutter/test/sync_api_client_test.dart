@@ -43,7 +43,8 @@ void main() {
     expect(session.wrappedMasterKeyForApproval, isEmpty);
   });
 
-  test('login unwraps a persisted master key from the server response', () async {
+  test('login unwraps a persisted master key from the server response',
+      () async {
     final cryptoService = SyncCryptoService();
     final bootstrapMaterial = await cryptoService.createBootstrapMaterial(
       email: 'demo@mnemosyne.local',
@@ -109,7 +110,8 @@ void main() {
     );
   });
 
-  test('recover unwraps a persisted master key from the recovery response', () async {
+  test('recover unwraps a persisted master key from the recovery response',
+      () async {
     final cryptoService = SyncCryptoService();
     final bootstrapMaterial = await cryptoService.createBootstrapMaterial(
       email: 'demo@mnemosyne.local',
@@ -147,7 +149,8 @@ void main() {
     expect(session.masterKeyMaterial, bootstrapMaterial.masterKeyMaterial);
   });
 
-  test('device approval start and consume transfer a wrapped master key', () async {
+  test('device approval start and consume transfer a wrapped master key',
+      () async {
     final cryptoService = SyncCryptoService();
     final bootstrapMaterial = await cryptoService.createBootstrapMaterial(
       email: 'demo@mnemosyne.local',
@@ -234,6 +237,7 @@ void main() {
                 'deviceId': 'device-1',
                 'deviceName': 'Windows Desktop',
                 'platform': 'windows',
+                'lastSeenAt': '2026-04-09T19:30:00Z',
               },
               <String, dynamic>{
                 'deviceId': 'device-2',
@@ -264,6 +268,7 @@ void main() {
 
     expect(devices, hasLength(2));
     expect(devices.first.deviceName, 'Windows Desktop');
+    expect(devices.first.lastSeenAt, DateTime.parse('2026-04-09T19:30:00Z'));
     expect(devices.last.platform, 'macos');
   });
 

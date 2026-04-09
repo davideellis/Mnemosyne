@@ -296,3 +296,71 @@ func TestFileStorePersistsDeviceApproval(t *testing.T) {
 		t.Fatalf("expected wrapped approval key in session, got %q", approvedSession.WrappedMasterKeyForApproval)
 	}
 }
+
+func TestFileStorePersistsDeviceLastSeen(t *testing.T) {
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "state.json")
+
+	store, err := NewFileStore(filePath)
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	session, err := store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	initialDevices, err := store.ListDevices(DeviceListRequest{
+		SessionToken: session.SessionToken,
+	})
+	if err != nil {
+		t.Fatalf("list devices before sync: %v", err)
+	}
+	if len(initialDevices) != 1 || initialDevices[0].LastSeenAt == "" {
+		t.Fatal("expected bootstrap device to have a last-seen timestamp")
+	}
+
+	_, err = store.Push(SyncPushRequest{
+		SessionToken: session.SessionToken,
+		Changes: []SyncChange{
+			{
+				ChangeID:         "change-1",
+				ObjectID:         "note-1",
+				Kind:             "note",
+				Operation:        "upsert",
+				LogicalTimestamp: "2026-04-08T18:00:00Z",
+				OriginDeviceID:   "device-1",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("push: %v", err)
+	}
+
+	reloadedStore, err := NewFileStore(filePath)
+	if err != nil {
+		t.Fatalf("reload file store: %v", err)
+	}
+
+	devices, err := reloadedStore.ListDevices(DeviceListRequest{
+		SessionToken: session.SessionToken,
+	})
+	if err != nil {
+		t.Fatalf("list devices after reload: %v", err)
+	}
+	if len(devices) != 1 || devices[0].LastSeenAt == "" {
+		t.Fatal("expected device last-seen timestamp to persist after reload")
+	}
+}

@@ -187,3 +187,57 @@ func TestMemoryStoreLogoutInvalidatesSession(t *testing.T) {
 		t.Fatal("expected logged-out session to be rejected")
 	}
 }
+
+func TestMemoryStoreTracksDeviceLastSeenDuringSync(t *testing.T) {
+	store := NewMemoryStore()
+
+	session, err := store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	devices, err := store.ListDevices(DeviceListRequest{SessionToken: session.SessionToken})
+	if err != nil {
+		t.Fatalf("list devices before sync: %v", err)
+	}
+	if len(devices) != 1 || devices[0].LastSeenAt == "" {
+		t.Fatal("expected bootstrap device to have a last-seen timestamp")
+	}
+	initialLastSeenAt := devices[0].LastSeenAt
+
+	_, err = store.Push(SyncPushRequest{
+		SessionToken: session.SessionToken,
+		Changes: []SyncChange{
+			{
+				ChangeID:         "change-1",
+				ObjectID:         "note-1",
+				Kind:             "note",
+				Operation:        "upsert",
+				LogicalTimestamp: "2026-04-08T18:00:00Z",
+				OriginDeviceID:   "device-1",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("push: %v", err)
+	}
+
+	devices, err = store.ListDevices(DeviceListRequest{SessionToken: session.SessionToken})
+	if err != nil {
+		t.Fatalf("list devices after sync: %v", err)
+	}
+	if devices[0].LastSeenAt < initialLastSeenAt {
+		t.Fatalf("expected last seen timestamp to advance, got %q then %q", initialLastSeenAt, devices[0].LastSeenAt)
+	}
+}

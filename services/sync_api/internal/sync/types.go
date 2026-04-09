@@ -4,6 +4,7 @@ type Device struct {
 	DeviceID   string `json:"deviceId"`
 	DeviceName string `json:"deviceName"`
 	Platform   string `json:"platform"`
+	LastSeenAt string `json:"lastSeenAt,omitempty"`
 }
 
 type AccountBootstrapRequest struct {

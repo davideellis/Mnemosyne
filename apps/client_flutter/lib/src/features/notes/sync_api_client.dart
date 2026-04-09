@@ -322,6 +322,9 @@ class SyncApiClient {
             deviceId: entry['deviceId'] as String? ?? '',
             deviceName: entry['deviceName'] as String? ?? '',
             platform: entry['platform'] as String? ?? '',
+            lastSeenAt: entry['lastSeenAt'] == null
+                ? null
+                : DateTime.tryParse(entry['lastSeenAt'] as String),
           ),
         )
         .toList(growable: false);
