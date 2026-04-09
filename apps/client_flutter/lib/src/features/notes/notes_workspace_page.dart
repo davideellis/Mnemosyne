@@ -1650,6 +1650,10 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                                 _lastSyncSuccessAt),
                                             lastSyncError: _lastSyncError,
                                             devices: _registeredDevices,
+                                            currentDeviceName:
+                                                _currentDeviceName(),
+                                            currentPlatform:
+                                                Platform.operatingSystem,
                                             onSettingsChanged: _updateSettings,
                                           ),
                                         ),

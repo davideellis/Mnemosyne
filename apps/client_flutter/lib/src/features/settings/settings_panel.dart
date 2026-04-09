@@ -20,6 +20,8 @@ class SettingsPanel extends StatelessWidget {
     required this.lastSyncSuccess,
     required this.lastSyncError,
     required this.devices,
+    required this.currentDeviceName,
+    required this.currentPlatform,
     required this.onSettingsChanged,
     super.key,
   });
@@ -36,6 +38,8 @@ class SettingsPanel extends StatelessWidget {
   final String lastSyncSuccess;
   final String? lastSyncError;
   final List<RegisteredDevice> devices;
+  final String currentDeviceName;
+  final String currentPlatform;
   final ValueChanged<WorkspaceSettings> onSettingsChanged;
 
   @override
@@ -150,11 +154,16 @@ class SettingsPanel extends StatelessWidget {
                   for (final device in devices)
                     ListTile(
                       leading: const Icon(Icons.devices_outlined),
-                      title: Text(device.deviceName),
+                      title: Text(
+                        device.deviceName == currentDeviceName &&
+                                device.platform == currentPlatform
+                            ? '${device.deviceName} (this device)'
+                            : device.deviceName,
+                      ),
                       subtitle: Text(
                         device.lastSeenAt == null
                             ? device.platform
-                            : '${device.platform} • Active ${_formatDeviceSeenAt(device.lastSeenAt!)}',
+                            : '${device.platform} | Active ${_formatDeviceSeenAt(device.lastSeenAt!)}',
                       ),
                     ),
                 ],
@@ -180,6 +189,11 @@ class SettingsPanel extends StatelessWidget {
               icon: noteIsTrashed
                   ? Icons.delete_outline
                   : Icons.description_outlined,
+            ),
+            _SettingTile(
+              title: 'Last Modified',
+              subtitle: _formatAbsoluteTimestamp(note!.modifiedAt),
+              icon: Icons.schedule_outlined,
             ),
             _SettingTile(
               title: 'Tags',
@@ -229,6 +243,14 @@ String _formatDeviceSeenAt(DateTime value) {
     return '${difference.inHours}h ago';
   }
   return '${local.month}/${local.day}/${local.year}';
+}
+
+String _formatAbsoluteTimestamp(DateTime value) {
+  final local = value.toLocal();
+  final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+  final minute = local.minute.toString().padLeft(2, '0');
+  final suffix = local.hour >= 12 ? 'PM' : 'AM';
+  return '${local.month}/${local.day}/${local.year} $hour:$minute $suffix';
 }
 
 class _GraphCard extends StatelessWidget {

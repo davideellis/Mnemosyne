@@ -60,7 +60,11 @@ Future<void> main(List<String> args) async {
     );
     stdout.writeln('Devices: ${devices.length}');
     for (final device in devices) {
-      stdout.writeln('- ${device.deviceName} (${device.platform})');
+      final lastSeenAt =
+          device.lastSeenAt?.toUtc().toIso8601String() ?? 'unknown';
+      stdout.writeln(
+        '- ${device.deviceName} (${device.platform}) lastSeenAt=$lastSeenAt',
+      );
     }
     return;
   }
@@ -103,15 +107,16 @@ Future<void> main(List<String> args) async {
                   deviceName: 'Smoke Runner',
                   platform: Platform.operatingSystem,
                 )
-          : await client.login(
-              baseUri: baseUri,
-              email: email,
-              password: password,
-            );
+              : await client.login(
+                  baseUri: baseUri,
+                  email: email,
+                  password: password,
+                );
 
   final objectId = 'smoke-${DateTime.now().toUtc().millisecondsSinceEpoch}';
   final relativePath = 'Smoke/$objectId.md';
-  final markdown = '# Smoke Test\n\nSynced at ${DateTime.now().toUtc().toIso8601String()}\n';
+  final markdown =
+      '# Smoke Test\n\nSynced at ${DateTime.now().toUtc().toIso8601String()}\n';
   final themeMode = options['theme-mode'] ?? 'dark';
   final graphDepth = int.tryParse(options['graph-depth'] ?? '') ?? 3;
   final settingsPayload = <String, dynamic>{
