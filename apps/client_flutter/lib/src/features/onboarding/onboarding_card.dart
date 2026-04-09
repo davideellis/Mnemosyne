@@ -15,6 +15,7 @@ class OnboardingCard extends StatelessWidget {
     required this.onRecover,
     required this.onConsumeApproval,
     required this.onStartApproval,
+    required this.onSignOut,
     super.key,
   });
 
@@ -29,6 +30,7 @@ class OnboardingCard extends StatelessWidget {
   final Future<void> Function() onRecover;
   final Future<void> Function() onConsumeApproval;
   final Future<void> Function() onStartApproval;
+  final Future<void> Function() onSignOut;
 
   @override
   Widget build(BuildContext context) {
@@ -64,6 +66,21 @@ class OnboardingCard extends StatelessWidget {
                         side: const BorderSide(color: Colors.white54),
                       ),
                       child: const Text('Approve new device'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: onSignOut,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white38),
+                      ),
+                      child: const Text('Sign out'),
                     ),
                   ),
                 ],

@@ -552,6 +552,29 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     }
   }
 
+  Future<void> _signOut() async {
+    final session = _session;
+    if (session != null) {
+      await _secureKeyRepository.deleteMasterKey(session.accountId);
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _session = null;
+      _registeredDevices = const <RegisteredDevice>[];
+      _statusLabel = 'Signed out';
+      _syncMessage = 'This device is disconnected from sync. Local notes remain available.';
+      _lastSyncError = null;
+      _lastSyncAttemptAt = null;
+      _lastSyncSuccessAt = null;
+      _autoSyncFailureCount = 0;
+    });
+    await _persistState();
+  }
+
   Future<void> _authenticate({required bool bootstrap}) async {
     setState(() {
       _isAuthenticating = true;
@@ -573,8 +596,8 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
               password: password,
               recoveryKey: recoveryKey!,
               recoveryKeyHint: recoveryKeyHint!,
-              deviceName: 'Windows Desktop',
-              platform: 'windows',
+              deviceName: _currentDeviceName(),
+              platform: Platform.operatingSystem,
             )
           : await _syncApiClient.login(
               baseUri: baseUri,
@@ -644,8 +667,8 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         session: session,
         changes: pendingChanges,
         cursor: _syncCursor,
-        deviceName: 'Windows Desktop',
-        platform: 'windows',
+        deviceName: _currentDeviceName(),
+        platform: Platform.operatingSystem,
       );
 
       final pulledNoteChanges = result.pulledChanges
@@ -1421,6 +1444,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                           onRecover: _recover,
                           onConsumeApproval: _consumeDeviceApproval,
                           onStartApproval: _startDeviceApproval,
+                          onSignOut: _signOut,
                         ),
                         ],
                       ),
