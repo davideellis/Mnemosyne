@@ -157,6 +157,7 @@ void main() {
               <String, dynamic>{
                 'changeId': 'change-2',
                 'objectId': 'note-2',
+                'kind': 'note',
                 'operation': 'upsert',
                 'encryptedMetadata': encryptedRemoteNote.encryptedMetadata,
                 'encryptedPayload': encryptedRemoteNote.encryptedPayload,
@@ -186,6 +187,7 @@ void main() {
       changes: const <SyncPushChange>[
         SyncPushChange(
           objectId: 'note-1',
+          kind: 'note',
           operation: 'upsert',
           title: 'Welcome',
           relativePath: 'Journal/welcome.md',
@@ -206,5 +208,97 @@ void main() {
     expect(result.pulledChanges, hasLength(1));
     expect(result.pulledChanges.first.relativePath, 'Journal/remote.md');
     expect(result.pulledChanges.first.markdown, '# Remote');
+  });
+
+  test('syncVault round-trips workspace settings changes', () async {
+    final cryptoService = SyncCryptoService();
+    final bootstrapMaterial = await cryptoService.createBootstrapMaterial(
+      email: 'demo@mnemosyne.local',
+      password: 'password',
+      recoveryKey: 'AAAA-BBBB-CCCC-DDDD',
+    );
+    final encryptedRemoteSettings = await cryptoService.encryptNote(
+      masterKeyMaterial: bootstrapMaterial.masterKeyMaterial,
+      metadata: <String, dynamic>{
+        'settings': <String, dynamic>{
+          'themeMode': 'dark',
+          'autoSyncEnabled': false,
+          'backlinksEnabled': false,
+          'graphDepth': 3,
+        },
+      },
+      markdown: '',
+    );
+
+    late Map<String, dynamic> pushedChange;
+    final client = SyncApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/v1/sync/push') {
+          final payload = jsonDecode(request.body) as Map<String, dynamic>;
+          pushedChange = (payload['changes'] as List<dynamic>).single
+              as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode(<String, dynamic>{'cursor': 'cursor-1'}),
+            202,
+            headers: const <String, String>{'content-type': 'application/json'},
+          );
+        }
+
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'cursor': 'cursor-2',
+            'changes': <dynamic>[
+              <String, dynamic>{
+                'changeId': 'settings-2',
+                'objectId': 'workspace-settings',
+                'kind': 'settings',
+                'operation': 'upsert',
+                'encryptedMetadata': encryptedRemoteSettings.encryptedMetadata,
+                'encryptedPayload': encryptedRemoteSettings.encryptedPayload,
+              },
+            ],
+          }),
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      }),
+      cryptoService: cryptoService,
+    );
+
+    final result = await client.syncVault(
+      baseUri: Uri.parse('http://127.0.0.1:8080'),
+      session: SyncSession(
+        accountId: 'acct_local',
+        sessionToken: 'session_bootstrap',
+        email: 'demo@mnemosyne.local',
+        encryptedMasterKeyForPassword:
+            bootstrapMaterial.encryptedMasterKeyForPassword,
+        encryptedMasterKeyForRecovery:
+            bootstrapMaterial.encryptedMasterKeyForRecovery,
+        masterKeyMaterial: bootstrapMaterial.masterKeyMaterial,
+        recoveryKeyHint: 'saved-locally',
+      ),
+      changes: const <SyncPushChange>[
+        SyncPushChange(
+          objectId: 'workspace-settings',
+          kind: 'settings',
+          operation: 'upsert',
+          settings: <String, dynamic>{
+            'themeMode': 'dark',
+            'autoSyncEnabled': false,
+            'backlinksEnabled': false,
+            'graphDepth': 3,
+          },
+        ),
+      ],
+      cursor: '',
+      deviceName: 'Windows Desktop',
+      platform: 'windows',
+    );
+
+    expect(pushedChange['kind'], 'settings');
+    expect(result.pulledChanges.single.kind, 'settings');
+    expect(result.pulledChanges.single.settings['themeMode'], 'dark');
+    expect(result.pulledChanges.single.settings['autoSyncEnabled'], isFalse);
   });
 }

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../notes/vault_models.dart';
+import 'workspace_settings.dart';
 
 class SettingsPanel extends StatelessWidget {
   const SettingsPanel({
@@ -11,6 +12,8 @@ class SettingsPanel extends StatelessWidget {
     required this.notes,
     required this.trashedNotes,
     required this.noteCount,
+    required this.settings,
+    required this.onSettingsChanged,
     super.key,
   });
 
@@ -19,6 +22,8 @@ class SettingsPanel extends StatelessWidget {
   final List<VaultNote> notes;
   final List<VaultNote> trashedNotes;
   final int noteCount;
+  final WorkspaceSettings settings;
+  final ValueChanged<WorkspaceSettings> onSettingsChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -41,25 +46,45 @@ class SettingsPanel extends StatelessWidget {
             subtitle: '$noteCount local Markdown files',
             icon: Icons.description_outlined,
           ),
-          const _SettingTile(
+          _ChoiceTile(
             title: 'Theme',
-            subtitle: 'System',
+            subtitle: settings.themeMode,
             icon: Icons.palette_outlined,
+            value: settings.themeMode,
+            options: const <String>['system', 'light', 'dark'],
+            onChanged: (value) => onSettingsChanged(
+              settings.copyWith(themeMode: value),
+            ),
           ),
-          const _SettingTile(
+          _ToggleTile(
             title: 'Sync',
-            subtitle: 'Automatic + manual',
+            subtitle: settings.autoSyncEnabled
+                ? 'Automatic + manual'
+                : 'Manual only',
             icon: Icons.sync_outlined,
+            value: settings.autoSyncEnabled,
+            onChanged: (value) => onSettingsChanged(
+              settings.copyWith(autoSyncEnabled: value),
+            ),
           ),
-          const _SettingTile(
+          _ToggleTile(
             title: 'Backlinks',
-            subtitle: 'Enabled',
+            subtitle: settings.backlinksEnabled ? 'Enabled' : 'Disabled',
             icon: Icons.call_split_outlined,
+            value: settings.backlinksEnabled,
+            onChanged: (value) => onSettingsChanged(
+              settings.copyWith(backlinksEnabled: value),
+            ),
           ),
-          const _SettingTile(
+          _ChoiceTile(
             title: 'Graph view',
-            subtitle: 'Depth 2',
+            subtitle: 'Depth ${settings.graphDepth}',
             icon: Icons.hub_outlined,
+            value: settings.graphDepth.toString(),
+            options: const <String>['1', '2', '3'],
+            onChanged: (value) => onSettingsChanged(
+              settings.copyWith(graphDepth: int.parse(value)),
+            ),
           ),
           const _SettingTile(
             title: 'Trash',
@@ -198,6 +223,81 @@ class _SettingTile extends StatelessWidget {
         leading: Icon(icon),
         title: Text(title),
         subtitle: Text(subtitle),
+      ),
+    );
+  }
+}
+
+class _ToggleTile extends StatelessWidget {
+  const _ToggleTile({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: Colors.white,
+      child: SwitchListTile(
+        value: value,
+        onChanged: onChanged,
+        secondary: Icon(icon),
+        title: Text(title),
+        subtitle: Text(subtitle),
+      ),
+    );
+  }
+}
+
+class _ChoiceTile extends StatelessWidget {
+  const _ChoiceTile({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final String value;
+  final List<String> options;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: Colors.white,
+      child: ListTile(
+        leading: Icon(icon),
+        title: Text(title),
+        subtitle: Text(subtitle),
+        trailing: DropdownButton<String>(
+          value: value,
+          onChanged: (next) {
+            if (next != null) {
+              onChanged(next);
+            }
+          },
+          items: [
+            for (final option in options)
+              DropdownMenuItem<String>(
+                value: option,
+                child: Text(option),
+              ),
+          ],
+        ),
       ),
     );
   }

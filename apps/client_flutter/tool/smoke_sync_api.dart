@@ -11,6 +11,7 @@ Future<void> main(List<String> args) async {
   final recoveryKey = options['recovery-key'] ?? 'TEST-KEY1-TEST-KEY2';
   final bootstrap = options.containsKey('bootstrap');
   final recover = options.containsKey('recover');
+  final settingsSync = options.containsKey('settings-sync');
 
   if (baseUrl == null || email == null || password == null) {
     stderr.writeln(
@@ -50,21 +51,39 @@ Future<void> main(List<String> args) async {
   final objectId = 'smoke-${DateTime.now().toUtc().millisecondsSinceEpoch}';
   final relativePath = 'Smoke/$objectId.md';
   final markdown = '# Smoke Test\n\nSynced at ${DateTime.now().toUtc().toIso8601String()}\n';
+  final themeMode = options['theme-mode'] ?? 'dark';
+  final graphDepth = int.tryParse(options['graph-depth'] ?? '') ?? 3;
+  final settingsPayload = <String, dynamic>{
+    'themeMode': themeMode,
+    'autoSyncEnabled': false,
+    'backlinksEnabled': false,
+    'graphDepth': graphDepth,
+  };
 
   final pushResult = await client.syncVault(
     baseUri: baseUri,
     session: session,
-    changes: <SyncPushChange>[
-      SyncPushChange(
-        objectId: objectId,
-        operation: 'upsert',
-        relativePath: relativePath,
-        title: 'Smoke Test',
-        markdown: markdown,
-        tags: const <String>['smoke'],
-        wikilinks: const <String>[],
-      ),
-    ],
+    changes: settingsSync
+        ? <SyncPushChange>[
+            SyncPushChange(
+              objectId: 'workspace-settings',
+              kind: 'settings',
+              operation: 'upsert',
+              settings: settingsPayload,
+            ),
+          ]
+        : <SyncPushChange>[
+            SyncPushChange(
+              objectId: objectId,
+              kind: 'note',
+              operation: 'upsert',
+              relativePath: relativePath,
+              title: 'Smoke Test',
+              markdown: markdown,
+              tags: const <String>['smoke'],
+              wikilinks: const <String>[],
+            ),
+          ],
     cursor: '',
     deviceName: 'Smoke Runner',
     platform: Platform.operatingSystem,
@@ -81,18 +100,38 @@ Future<void> main(List<String> args) async {
     cursor: '',
   );
 
-  final matchingChanges = pullResult.pulledChanges
-      .where((change) => change.objectId == objectId)
-      .toList(growable: false);
-  if (matchingChanges.length != 1 || matchingChanges.first.markdown != markdown) {
-    stderr.writeln(
-      'Smoke test failed. Expected one round-tripped note for $objectId.',
-    );
-    stderr.writeln('Push cursor: ${pushResult.cursor}');
-    stderr.writeln('Pull cursor: ${pullResult.cursor}');
-    stderr.writeln('Matches: ${matchingChanges.length}');
-    exitCode = 1;
-    return;
+  if (settingsSync) {
+    final matchingChanges = pullResult.pulledChanges
+        .where((change) => change.objectId == 'workspace-settings')
+        .toList(growable: false);
+    if (matchingChanges.isEmpty ||
+        matchingChanges.last.settings['themeMode'] != themeMode ||
+        matchingChanges.last.settings['graphDepth'] != graphDepth ||
+        matchingChanges.last.settings['autoSyncEnabled'] != false) {
+      stderr.writeln(
+        'Settings smoke test failed. Expected a round-tripped workspace settings change.',
+      );
+      stderr.writeln('Push cursor: ${pushResult.cursor}');
+      stderr.writeln('Pull cursor: ${pullResult.cursor}');
+      stderr.writeln('Matches: ${matchingChanges.length}');
+      exitCode = 1;
+      return;
+    }
+  } else {
+    final matchingChanges = pullResult.pulledChanges
+        .where((change) => change.objectId == objectId)
+        .toList(growable: false);
+    if (matchingChanges.length != 1 ||
+        matchingChanges.first.markdown != markdown) {
+      stderr.writeln(
+        'Smoke test failed. Expected one round-tripped note for $objectId.',
+      );
+      stderr.writeln('Push cursor: ${pushResult.cursor}');
+      stderr.writeln('Pull cursor: ${pullResult.cursor}');
+      stderr.writeln('Matches: ${matchingChanges.length}');
+      exitCode = 1;
+      return;
+    }
   }
 
   stdout.writeln('Smoke test passed.');

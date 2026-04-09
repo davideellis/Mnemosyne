@@ -200,7 +200,7 @@ class SyncApiClient {
     );
 
     final pullBody = _decodeJson(pullResponse);
-    final pulledChanges = <RemoteNoteChange>[];
+    final pulledChanges = <RemoteSyncChange>[];
     for (final change in (pullBody['changes'] as List<dynamic>? ?? const [])) {
       if (change is Map) {
         pulledChanges.add(
@@ -247,10 +247,13 @@ class SyncApiClient {
   ) async {
     final timestamp = DateTime.now().toUtc().toIso8601String();
     final metadata = <String, dynamic>{
-      'title': change.title,
-      'relativePath': change.relativePath,
-      'tags': change.tags,
-      'wikilinks': change.wikilinks,
+      if (change.kind == 'note') ...<String, dynamic>{
+        'title': change.title,
+        'relativePath': change.relativePath,
+        'tags': change.tags,
+        'wikilinks': change.wikilinks,
+      },
+      if (change.kind == 'settings') 'settings': change.settings,
     };
 
     final encryptedPayload = await _cryptoService.encryptNote(
@@ -262,7 +265,7 @@ class SyncApiClient {
     return <String, dynamic>{
       'changeId': '${change.objectId}:$timestamp:${change.operation}',
       'objectId': change.objectId,
-      'kind': 'note',
+      'kind': change.kind,
       'operation': change.operation,
       'logicalTimestamp': timestamp,
       'originDeviceId': _deviceId(deviceName, platform),
@@ -282,7 +285,7 @@ class SyncApiClient {
     return base64Url.encode(utf8.encode('$deviceName::$platform'));
   }
 
-  Future<RemoteNoteChange> _decodeRemoteNoteChange(
+  Future<RemoteSyncChange> _decodeRemoteNoteChange(
     SyncSession session,
     Map<String, dynamic> json,
   ) async {
@@ -293,9 +296,10 @@ class SyncApiClient {
     );
     final metadata = decrypted.metadata;
 
-    return RemoteNoteChange(
+    return RemoteSyncChange(
       changeId: json['changeId'] as String? ?? '',
       objectId: json['objectId'] as String? ?? '',
+      kind: json['kind'] as String? ?? 'note',
       operation: json['operation'] as String? ?? 'upsert',
       relativePath: metadata['relativePath'] as String? ?? '',
       title: metadata['title'] as String? ?? '',
@@ -306,6 +310,8 @@ class SyncApiClient {
       wikilinks: (metadata['wikilinks'] as List<dynamic>? ?? const <dynamic>[])
           .whereType<String>()
           .toList(growable: false),
+      settings: (metadata['settings'] as Map<dynamic, dynamic>? ?? const {})
+          .map((key, value) => MapEntry(key as String, value)),
     );
   }
 

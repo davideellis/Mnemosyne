@@ -22,15 +22,35 @@ type FileStore struct {
 	state    fileStoreState
 }
 
+func newFileStoreState() fileStoreState {
+	return fileStoreState{
+		Sessions:       map[string]string{},
+		LatestChanges:  map[string]SyncChange{},
+		PayloadRefs:    map[string]string{},
+		TrashObjectIDs: map[string]bool{},
+	}
+}
+
+func normalizeFileStoreState(state fileStoreState) fileStoreState {
+	if state.Sessions == nil {
+		state.Sessions = map[string]string{}
+	}
+	if state.LatestChanges == nil {
+		state.LatestChanges = map[string]SyncChange{}
+	}
+	if state.PayloadRefs == nil {
+		state.PayloadRefs = map[string]string{}
+	}
+	if state.TrashObjectIDs == nil {
+		state.TrashObjectIDs = map[string]bool{}
+	}
+	return state
+}
+
 func NewFileStore(filePath string) (*FileStore, error) {
 	store := &FileStore{
 		filePath: filePath,
-		state: fileStoreState{
-			Sessions:       map[string]string{},
-			LatestChanges:  map[string]SyncChange{},
-			PayloadRefs:    map[string]string{},
-			TrashObjectIDs: map[string]bool{},
-		},
+		state:    newFileStoreState(),
 	}
 
 	if err := store.load(); err != nil {
@@ -233,6 +253,7 @@ func (s *FileStore) load() error {
 	raw, err := os.ReadFile(s.filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			s.state = newFileStoreState()
 			return nil
 		}
 		return err
@@ -242,20 +263,7 @@ func (s *FileStore) load() error {
 	if err := json.Unmarshal(raw, &state); err != nil {
 		return err
 	}
-
-	if state.Sessions == nil {
-		state.Sessions = map[string]string{}
-	}
-	if state.LatestChanges == nil {
-		state.LatestChanges = map[string]SyncChange{}
-	}
-	if state.PayloadRefs == nil {
-		state.PayloadRefs = map[string]string{}
-	}
-	if state.TrashObjectIDs == nil {
-		state.TrashObjectIDs = map[string]bool{}
-	}
-	s.state = state
+	s.state = normalizeFileStoreState(state)
 	return nil
 }
 

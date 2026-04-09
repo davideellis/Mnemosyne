@@ -43,43 +43,51 @@ class SyncSession {
 class SyncPushChange {
   const SyncPushChange({
     required this.objectId,
+    required this.kind,
     required this.operation,
-    required this.relativePath,
-    required this.title,
-    required this.markdown,
-    required this.tags,
-    required this.wikilinks,
+    this.relativePath = '',
+    this.title = '',
+    this.markdown = '',
+    this.tags = const <String>[],
+    this.wikilinks = const <String>[],
+    this.settings = const <String, dynamic>{},
   });
 
   final String objectId;
+  final String kind;
   final String operation;
   final String relativePath;
   final String title;
   final String markdown;
   final List<String> tags;
   final List<String> wikilinks;
+  final Map<String, dynamic> settings;
 }
 
-class RemoteNoteChange {
-  const RemoteNoteChange({
+class RemoteSyncChange {
+  const RemoteSyncChange({
     required this.changeId,
     required this.objectId,
+    required this.kind,
     required this.operation,
-    required this.relativePath,
-    required this.title,
-    required this.markdown,
-    required this.tags,
-    required this.wikilinks,
+    this.relativePath = '',
+    this.title = '',
+    this.markdown = '',
+    this.tags = const <String>[],
+    this.wikilinks = const <String>[],
+    this.settings = const <String, dynamic>{},
   });
 
   final String changeId;
   final String objectId;
+  final String kind;
   final String operation;
   final String relativePath;
   final String title;
   final String markdown;
   final List<String> tags;
   final List<String> wikilinks;
+  final Map<String, dynamic> settings;
 }
 
 class SyncResult {
@@ -93,5 +101,5 @@ class SyncResult {
   final String cursor;
   final int pushedCount;
   final int pulledCount;
-  final List<RemoteNoteChange> pulledChanges;
+  final List<RemoteSyncChange> pulledChanges;
 }

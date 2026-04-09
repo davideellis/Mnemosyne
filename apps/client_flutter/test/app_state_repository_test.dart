@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mnemosyne/src/features/notes/app_state_repository.dart';
 import 'package:mnemosyne/src/features/notes/sync_models.dart';
+import 'package:mnemosyne/src/features/settings/workspace_settings.dart';
 
 void main() {
   test('persisted app state serializes session and vault data', () {
@@ -11,7 +12,15 @@ void main() {
       apiBaseUrl: 'http://127.0.0.1:8080',
       email: 'demo@mnemosyne.local',
       knownNoteDigests: <String, String>{'Journal/welcome.md': 'digest-1'},
+      knownSettingsDigest:
+          '{"themeMode":"dark","autoSyncEnabled":false,"backlinksEnabled":false,"graphDepth":3}',
       knownTrashDigests: <String, String>{'Journal/trashed.md': 'trash-digest'},
+      settings: WorkspaceSettings(
+        themeMode: 'dark',
+        autoSyncEnabled: false,
+        backlinksEnabled: false,
+        graphDepth: 3,
+      ),
       syncCursor: 'cursor-1',
       vaultRootPath: '/tmp/MnemosyneDemoVault',
       session: SyncSession(
@@ -32,7 +41,12 @@ void main() {
     expect(restored.apiBaseUrl, state.apiBaseUrl);
     expect(restored.email, state.email);
     expect(restored.knownNoteDigests['Journal/welcome.md'], 'digest-1');
+    expect(restored.knownSettingsDigest, state.knownSettingsDigest);
     expect(restored.knownTrashDigests['Journal/trashed.md'], 'trash-digest');
+    expect(restored.settings.themeMode, 'dark');
+    expect(restored.settings.autoSyncEnabled, isFalse);
+    expect(restored.settings.backlinksEnabled, isFalse);
+    expect(restored.settings.graphDepth, 3);
     expect(restored.syncCursor, state.syncCursor);
     expect(restored.vaultRootPath, state.vaultRootPath);
     expect(restored.session?.sessionToken, state.session?.sessionToken);

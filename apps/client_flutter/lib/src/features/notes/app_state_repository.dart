@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as path;
 
+import '../settings/workspace_settings.dart';
 import 'sync_models.dart';
 
 class PersistedAppState {
@@ -10,8 +11,10 @@ class PersistedAppState {
     this.apiBaseUrl,
     this.email,
     this.knownNoteDigests = const <String, String>{},
+    this.knownSettingsDigest,
     this.knownTrashDigests = const <String, String>{},
     this.session,
+    this.settings = const WorkspaceSettings(),
     this.syncCursor,
     this.vaultRootPath,
   });
@@ -19,8 +22,10 @@ class PersistedAppState {
   final String? apiBaseUrl;
   final String? email;
   final Map<String, String> knownNoteDigests;
+  final String? knownSettingsDigest;
   final Map<String, String> knownTrashDigests;
   final SyncSession? session;
+  final WorkspaceSettings settings;
   final String? syncCursor;
   final String? vaultRootPath;
 
@@ -30,7 +35,9 @@ class PersistedAppState {
       'apiBaseUrl': apiBaseUrl,
       'email': email,
       'knownNoteDigests': knownNoteDigests,
+      'knownSettingsDigest': knownSettingsDigest,
       'knownTrashDigests': knownTrashDigests,
+      'settings': settings.toJson(),
       'syncCursor': syncCursor,
       'vaultRootPath': vaultRootPath,
       'session': sessionValue == null
@@ -60,11 +67,15 @@ class PersistedAppState {
           : digestJson.map(
               (key, value) => MapEntry(key, value as String),
             ),
+      knownSettingsDigest: json['knownSettingsDigest'] as String?,
       knownTrashDigests: trashDigestJson == null
           ? const <String, String>{}
           : trashDigestJson.map(
               (key, value) => MapEntry(key, value as String),
             ),
+      settings: WorkspaceSettings.fromJson(
+        (json['settings'] as Map<String, dynamic>?) ?? const <String, dynamic>{},
+      ),
       syncCursor: json['syncCursor'] as String?,
       vaultRootPath: json['vaultRootPath'] as String?,
       session: sessionJson == null

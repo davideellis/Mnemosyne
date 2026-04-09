@@ -37,10 +37,11 @@ void main() {
 
     final snapshot = await repository.applyRemoteChanges(
       rootPath: root.path,
-      changes: const <RemoteNoteChange>[
-        RemoteNoteChange(
+      changes: const <RemoteSyncChange>[
+        RemoteSyncChange(
           changeId: 'change-1',
           objectId: 'Journal/remote.md',
+          kind: 'note',
           operation: 'upsert',
           relativePath: 'Journal/remote.md',
           title: 'Remote Note',
@@ -108,10 +109,11 @@ void main() {
 
     final snapshot = await repository.applyRemoteChanges(
       rootPath: root.path,
-      changes: const <RemoteNoteChange>[
-        RemoteNoteChange(
+      changes: const <RemoteSyncChange>[
+        RemoteSyncChange(
           changeId: 'change-delete',
           objectId: 'Journal/delete-me.md',
+          kind: 'note',
           operation: 'upsert',
           relativePath: 'Journal/delete-me.md',
           title: 'Delete Me',
@@ -150,10 +152,11 @@ void main() {
 
     final initialSnapshot = await repository.applyRemoteChanges(
       rootPath: root.path,
-      changes: const <RemoteNoteChange>[
-        RemoteNoteChange(
+      changes: const <RemoteSyncChange>[
+        RemoteSyncChange(
           changeId: 'change-restore',
           objectId: 'Journal/restore-me.md',
+          kind: 'note',
           operation: 'upsert',
           relativePath: 'Journal/restore-me.md',
           title: 'Restore Me',

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../widgets/status_chip.dart';
 import '../onboarding/onboarding_card.dart';
 import '../settings/settings_panel.dart';
+import '../settings/workspace_settings.dart';
 import 'app_state_repository.dart';
 import 'local_vault_repository.dart';
 import 'secure_key_repository.dart';
@@ -50,7 +51,9 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   bool _isAuthenticating = false;
   String? _statusLabel;
   Map<String, String> _knownNoteDigests = <String, String>{};
+  String? _knownSettingsDigest;
   Map<String, String> _knownTrashDigests = <String, String>{};
+  WorkspaceSettings _settings = const WorkspaceSettings();
   String _syncCursor = '';
   String? _syncMessage;
   String _searchQuery = '';
@@ -94,8 +97,10 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       _session = hydratedSession;
       _knownNoteDigests =
           Map<String, String>.from(persistedState.knownNoteDigests);
+      _knownSettingsDigest = persistedState.knownSettingsDigest;
       _knownTrashDigests =
           Map<String, String>.from(persistedState.knownTrashDigests);
+      _settings = persistedState.settings;
       _syncCursor = persistedState.syncCursor ?? '';
       _apiBaseUrlController.text =
           persistedState.apiBaseUrl ?? _apiBaseUrlController.text;
@@ -515,21 +520,27 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     });
 
     try {
+      final pendingChanges = _buildSyncChanges(snapshot);
       final result = await _syncApiClient.syncVault(
         baseUri: _parseBaseUri(),
         session: session,
-        changes: _buildSyncChanges(snapshot),
+        changes: pendingChanges,
         cursor: _syncCursor,
         deviceName: 'Windows Desktop',
         platform: 'windows',
       );
 
-      final refreshedSnapshot = result.pulledChanges.isEmpty
+      final pulledNoteChanges = result.pulledChanges
+          .where((change) => change.kind == 'note')
+          .toList(growable: false);
+      final remoteSettings = _latestRemoteSettings(result.pulledChanges);
+      final refreshedSnapshot = pulledNoteChanges.isEmpty
           ? snapshot
           : await _repository.applyRemoteChanges(
               rootPath: snapshot.rootPath,
-              changes: result.pulledChanges,
+              changes: pulledNoteChanges,
             );
+      final effectiveSettings = remoteSettings ?? _settings;
 
       if (!mounted) {
         return;
@@ -539,6 +550,8 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         _replaceSnapshot(refreshedSnapshot, statusLabel: 'Up to date');
         _knownNoteDigests = _buildKnownDigests(refreshedSnapshot);
         _knownTrashDigests = _buildTrashDigests(refreshedSnapshot);
+        _settings = effectiveSettings;
+        _knownSettingsDigest = effectiveSettings.digest();
         _syncCursor = result.cursor;
         _syncMessage =
             'Pushed ${result.pushedCount} changes, pulled ${result.pulledCount} changes.';
@@ -672,7 +685,9 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         email: _emailController.text.trim(),
         session: _session,
         knownNoteDigests: _knownNoteDigests,
+        knownSettingsDigest: _knownSettingsDigest,
         knownTrashDigests: _knownTrashDigests,
+        settings: _settings,
         syncCursor: _syncCursor,
         vaultRootPath: snapshot?.rootPath,
       ),
@@ -700,7 +715,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   }
 
   void _scheduleAutoSync() {
-    if (_session == null) {
+    if (_session == null || !_settings.autoSyncEnabled) {
       return;
     }
 
@@ -779,6 +794,20 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     _statusLabel = statusLabel ?? _statusLabel;
   }
 
+  Future<void> _updateSettings(WorkspaceSettings nextSettings) async {
+    if (_settings.digest() == nextSettings.digest()) {
+      return;
+    }
+
+    setState(() {
+      _settings = nextSettings;
+      _statusLabel = 'Updated settings locally';
+      _syncMessage = 'Workspace settings saved on this device.';
+    });
+    await _persistState();
+    _scheduleAutoSync();
+  }
+
   List<SyncPushChange> _buildSyncChanges(VaultSnapshot snapshot) {
     final nextDigests = _buildKnownDigests(snapshot);
     final nextTrashDigests = _buildTrashDigests(snapshot);
@@ -793,6 +822,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       changes.add(
         SyncPushChange(
           objectId: note.objectId,
+          kind: 'note',
           operation: 'upsert',
           relativePath: note.relativePath,
           title: note.title,
@@ -812,6 +842,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       changes.add(
         SyncPushChange(
           objectId: note.objectId,
+          kind: 'note',
           operation: 'trash',
           relativePath: note.relativePath,
           title: note.title,
@@ -832,6 +863,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       changes.add(
         SyncPushChange(
           objectId: note.objectId,
+          kind: 'note',
           operation: 'restore',
           relativePath: note.relativePath,
           title: note.title,
@@ -842,7 +874,33 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       );
     }
 
+    final nextSettingsDigest = _settings.digest();
+    if (nextSettingsDigest != _knownSettingsDigest) {
+      changes.add(
+        SyncPushChange(
+          objectId: 'workspace-settings',
+          kind: 'settings',
+          operation: 'upsert',
+          settings: _settings.toJson(),
+        ),
+      );
+    }
+
     return changes;
+  }
+
+  WorkspaceSettings? _latestRemoteSettings(List<RemoteSyncChange> changes) {
+    WorkspaceSettings? latest;
+    for (final change in changes) {
+      if (change.kind != 'settings' ||
+          change.objectId != 'workspace-settings' ||
+          change.operation != 'upsert' ||
+          change.settings.isEmpty) {
+        continue;
+      }
+      latest = WorkspaceSettings.fromJson(change.settings);
+    }
+    return latest;
   }
 
   Map<String, String> _buildKnownDigests(VaultSnapshot snapshot) {
@@ -1041,6 +1099,8 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                       trashedNotes: snapshot?.trashedNotes ??
                                           const <VaultNote>[],
                                       noteCount: snapshot?.notes.length ?? 0,
+                                      settings: _settings,
+                                      onSettingsChanged: _updateSettings,
                                     ),
                                   ),
                                 ],

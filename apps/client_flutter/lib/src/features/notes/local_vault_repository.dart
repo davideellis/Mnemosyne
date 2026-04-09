@@ -118,11 +118,14 @@ class LocalVaultRepository {
 
   Future<VaultSnapshot> applyRemoteChanges({
     required String rootPath,
-    required List<RemoteNoteChange> changes,
+    required List<RemoteSyncChange> changes,
   }) async {
     final root = Directory(rootPath);
 
     for (final change in changes) {
+      if (change.kind != 'note') {
+        continue;
+      }
       if (change.relativePath.isEmpty) {
         continue;
       }

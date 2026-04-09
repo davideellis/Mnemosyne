@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -185,5 +186,57 @@ func TestFileStorePersistsRecoveryVerifier(t *testing.T) {
 	}
 	if session.SessionToken == "" {
 		t.Fatal("expected recovery to return a session token")
+	}
+}
+
+func TestFileStoreLoadClearsStateWhenBackingFileIsRemoved(t *testing.T) {
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "state.json")
+
+	store, err := NewFileStore(filePath)
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	_, err = store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	if err := os.Remove(filePath); err != nil {
+		t.Fatalf("remove state file: %v", err)
+	}
+	if err := store.load(); err != nil {
+		t.Fatalf("reload after removing state file: %v", err)
+	}
+	if store.state.Account != nil {
+		t.Fatal("expected in-memory account state to clear when backing file is missing")
+	}
+
+	_, err = store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof-2",
+		RecoveryVerifier:              "rec-proof-2",
+		EncryptedMasterKeyForPassword: "enc-pw-2",
+		EncryptedMasterKeyForRecovery: "enc-recovery-2",
+		Device: Device{
+			DeviceID:   "device-2",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap after clearing state: %v", err)
 	}
 }

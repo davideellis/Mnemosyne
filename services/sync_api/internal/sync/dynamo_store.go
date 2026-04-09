@@ -42,12 +42,7 @@ func NewDynamoStore(tableName string, bucketName string) (*DynamoStore, error) {
 		client:       dynamodb.NewFromConfig(cfg),
 		tableName:    tableName,
 		payloadBlobs: payloadBlobs,
-		state: fileStoreState{
-			Sessions:       map[string]string{},
-			LatestChanges:  map[string]SyncChange{},
-			PayloadRefs:    map[string]string{},
-			TrashObjectIDs: map[string]bool{},
-		},
+		state:        newFileStoreState(),
 	}
 
 	if err := store.load(); err != nil {
@@ -307,11 +302,13 @@ func (s *DynamoStore) load() error {
 	}
 
 	if len(output.Item) == 0 {
+		s.state = newFileStoreState()
 		return nil
 	}
 
 	stateJSON, ok := output.Item[dynamoStateAttribute].(*types.AttributeValueMemberS)
 	if !ok || stateJSON.Value == "" {
+		s.state = newFileStoreState()
 		return nil
 	}
 
@@ -319,19 +316,7 @@ func (s *DynamoStore) load() error {
 	if err := json.Unmarshal([]byte(stateJSON.Value), &state); err != nil {
 		return err
 	}
-	if state.Sessions == nil {
-		state.Sessions = map[string]string{}
-	}
-	if state.LatestChanges == nil {
-		state.LatestChanges = map[string]SyncChange{}
-	}
-	if state.PayloadRefs == nil {
-		state.PayloadRefs = map[string]string{}
-	}
-	if state.TrashObjectIDs == nil {
-		state.TrashObjectIDs = map[string]bool{}
-	}
-	s.state = state
+	s.state = normalizeFileStoreState(state)
 	return nil
 }
 
