@@ -613,6 +613,34 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     });
   }
 
+  void _openLinkedNote(String target) {
+    final snapshot = _snapshot;
+    if (snapshot == null) {
+      return;
+    }
+
+    final normalizedTarget = target.trim().toLowerCase();
+    for (final note in snapshot.notes) {
+      final matchesTitle = note.title.trim().toLowerCase() == normalizedTarget;
+      final matchesBasename = note.relativePath
+          .split('/')
+          .last
+          .replaceAll('.md', '')
+          .toLowerCase() == normalizedTarget;
+      final matchesPath = note.relativePath.toLowerCase() == normalizedTarget ||
+          note.relativePath.toLowerCase() == '$normalizedTarget.md';
+      if (matchesTitle || matchesBasename || matchesPath) {
+        _selectNote(note);
+        return;
+      }
+    }
+
+    setState(() {
+      _statusLabel = 'Link not found locally';
+      _syncMessage = 'No local note matched "$target".';
+    });
+  }
+
   Uri _parseBaseUri() {
     final raw = _apiBaseUrlController.text.trim();
     final parsed = Uri.tryParse(raw);
@@ -1207,7 +1235,9 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                 final editorPane = _EditorPane(
                                   note: selectedNote,
                                   isTrashed: _selectedNoteIsTrashed,
+                                  backlinksEnabled: _settings.backlinksEnabled,
                                   controller: _editorController,
+                                  onOpenLinkedNote: _openLinkedNote,
                                 );
 
                                 if (isCompact) {
@@ -1787,12 +1817,16 @@ class _EditorPane extends StatelessWidget {
   const _EditorPane({
     required this.note,
     required this.isTrashed,
+    required this.backlinksEnabled,
     required this.controller,
+    required this.onOpenLinkedNote,
   });
 
   final VaultNote? note;
   final bool isTrashed;
+  final bool backlinksEnabled;
   final TextEditingController controller;
+  final ValueChanged<String> onOpenLinkedNote;
 
   @override
   Widget build(BuildContext context) {
@@ -1835,10 +1869,18 @@ class _EditorPane extends StatelessWidget {
                   children: [
                     for (final tag in note!.tags) Chip(label: Text('#$tag')),
                     for (final link in note!.wikilinks)
-                      Chip(
+                      ActionChip(
                         avatar: const Icon(Icons.link, size: 16),
                         label: Text(link),
+                        onPressed: () => onOpenLinkedNote(link),
                       ),
+                    if (backlinksEnabled)
+                      for (final backlink in note!.backlinks)
+                        ActionChip(
+                          avatar: const Icon(Icons.call_split, size: 16),
+                          label: Text(backlink),
+                          onPressed: () => onOpenLinkedNote(backlink),
+                        ),
                   ],
                 ),
                 const SizedBox(height: 20),
