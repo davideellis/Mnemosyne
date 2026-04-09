@@ -5,6 +5,7 @@ class SyncSession {
     required this.email,
     required this.encryptedMasterKeyForPassword,
     required this.encryptedMasterKeyForRecovery,
+    required this.wrappedMasterKeyForApproval,
     required this.masterKeyMaterial,
     required this.recoveryKeyHint,
   });
@@ -14,6 +15,7 @@ class SyncSession {
   final String email;
   final String encryptedMasterKeyForPassword;
   final String encryptedMasterKeyForRecovery;
+  final String wrappedMasterKeyForApproval;
   final String masterKeyMaterial;
   final String recoveryKeyHint;
 
@@ -23,6 +25,7 @@ class SyncSession {
     String? email,
     String? encryptedMasterKeyForPassword,
     String? encryptedMasterKeyForRecovery,
+    String? wrappedMasterKeyForApproval,
     String? masterKeyMaterial,
     String? recoveryKeyHint,
   }) {
@@ -34,6 +37,8 @@ class SyncSession {
           encryptedMasterKeyForPassword ?? this.encryptedMasterKeyForPassword,
       encryptedMasterKeyForRecovery:
           encryptedMasterKeyForRecovery ?? this.encryptedMasterKeyForRecovery,
+      wrappedMasterKeyForApproval:
+          wrappedMasterKeyForApproval ?? this.wrappedMasterKeyForApproval,
       masterKeyMaterial: masterKeyMaterial ?? this.masterKeyMaterial,
       recoveryKeyHint: recoveryKeyHint ?? this.recoveryKeyHint,
     );

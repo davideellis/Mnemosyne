@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	stdsync "sync"
+	"time"
 )
 
 type fileStoreState struct {
@@ -12,6 +13,7 @@ type fileStoreState struct {
 	Sessions       map[string]string     `json:"sessions"`
 	Changes        []SyncChange          `json:"changes"`
 	LatestChanges  map[string]SyncChange `json:"latestChanges"`
+	PendingApprovals map[string]DeviceApproval `json:"pendingApprovals"`
 	PayloadRefs    map[string]string     `json:"payloadRefs"`
 	TrashObjectIDs map[string]bool       `json:"trashObjectIds"`
 }
@@ -24,10 +26,11 @@ type FileStore struct {
 
 func newFileStoreState() fileStoreState {
 	return fileStoreState{
-		Sessions:       map[string]string{},
-		LatestChanges:  map[string]SyncChange{},
-		PayloadRefs:    map[string]string{},
-		TrashObjectIDs: map[string]bool{},
+		Sessions:         map[string]string{},
+		LatestChanges:    map[string]SyncChange{},
+		PendingApprovals: map[string]DeviceApproval{},
+		PayloadRefs:      map[string]string{},
+		TrashObjectIDs:   map[string]bool{},
 	}
 }
 
@@ -37,6 +40,9 @@ func normalizeFileStoreState(state fileStoreState) fileStoreState {
 	}
 	if state.LatestChanges == nil {
 		state.LatestChanges = map[string]SyncChange{}
+	}
+	if state.PendingApprovals == nil {
+		state.PendingApprovals = map[string]DeviceApproval{}
 	}
 	if state.PayloadRefs == nil {
 		state.PayloadRefs = map[string]string{}
@@ -142,6 +148,62 @@ func (s *FileStore) RegisterDevice(req DeviceRegistrationRequest) (Device, error
 	}
 
 	return req.Device, nil
+}
+
+func (s *FileStore) StartDeviceApproval(
+	req DeviceApprovalStartRequest,
+) (DeviceApproval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.state.Sessions[req.SessionToken]; !ok || s.state.Account == nil {
+		return DeviceApproval{}, ErrInvalidSession
+	}
+
+	approval := DeviceApproval{
+		AccountID:        s.state.Account.AccountID,
+		Email:            s.state.Account.Email,
+		ApprovalVerifier: req.ApprovalVerifier,
+		WrappedKeyBlob:   req.WrappedKeyBlob,
+		ExpiresAt:        time.Now().UTC().Add(10 * time.Minute).Format(time.RFC3339),
+	}
+	s.state.PendingApprovals[req.ApprovalVerifier] = approval
+
+	if err := s.save(); err != nil {
+		return DeviceApproval{}, err
+	}
+	return approval, nil
+}
+
+func (s *FileStore) ConsumeDeviceApproval(
+	req DeviceApprovalConsumeRequest,
+) (AuthSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.state.Account == nil || s.state.Account.Email != req.Email {
+		return AuthSession{}, ErrInvalidApproval
+	}
+
+	approval, ok := s.state.PendingApprovals[req.ApprovalVerifier]
+	if !ok || approval.Email != req.Email || approval.WrappedKeyBlob == "" {
+		return AuthSession{}, ErrInvalidApproval
+	}
+	if parseLogicalTimestamp(approval.ExpiresAt).Before(time.Now().UTC()) {
+		delete(s.state.PendingApprovals, req.ApprovalVerifier)
+		_ = s.save()
+		return AuthSession{}, ErrInvalidApproval
+	}
+
+	s.state.Account.Devices[req.Device.DeviceID] = req.Device
+	sessionToken := sessionTokenForCount(len(s.state.Sessions) + 1)
+	s.state.Sessions[sessionToken] = s.state.Account.AccountID
+	delete(s.state.PendingApprovals, req.ApprovalVerifier)
+
+	if err := s.save(); err != nil {
+		return AuthSession{}, err
+	}
+	return authSessionForApproval(sessionToken, s.state.Account, approval.WrappedKeyBlob), nil
 }
 
 func (s *FileStore) Pull(req SyncPullRequest) (PullResponse, error) {

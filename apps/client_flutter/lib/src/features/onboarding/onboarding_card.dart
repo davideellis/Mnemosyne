@@ -13,6 +13,8 @@ class OnboardingCard extends StatelessWidget {
     required this.onBootstrap,
     required this.onLogin,
     required this.onRecover,
+    required this.onConsumeApproval,
+    required this.onStartApproval,
     super.key,
   });
 
@@ -25,6 +27,8 @@ class OnboardingCard extends StatelessWidget {
   final Future<void> Function() onBootstrap;
   final Future<void> Function() onLogin;
   final Future<void> Function() onRecover;
+  final Future<void> Function() onConsumeApproval;
+  final Future<void> Function() onStartApproval;
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +52,23 @@ class OnboardingCard extends StatelessWidget {
                 'Signed in as ${session!.email}',
                 style: const TextStyle(color: Colors.white),
               ),
+            if (session != null) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: onStartApproval,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white54),
+                      ),
+                      child: const Text('Approve new device'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             if (session == null) ...[
               _SyncField(
                 controller: apiBaseUrlController,
@@ -111,6 +132,21 @@ class OnboardingCard extends StatelessWidget {
                         side: const BorderSide(color: Colors.white54),
                       ),
                       child: const Text('Use recovery key'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: isAuthenticating ? null : onConsumeApproval,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white38),
+                      ),
+                      child: const Text('Use approval code'),
                     ),
                   ),
                 ],

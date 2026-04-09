@@ -40,6 +40,7 @@ void main() {
     expect(session.email, 'demo@mnemosyne.local');
     expect(session.masterKeyMaterial, isNotEmpty);
     expect(session.encryptedMasterKeyForPassword, isNotEmpty);
+    expect(session.wrappedMasterKeyForApproval, isEmpty);
   });
 
   test('login unwraps a persisted master key from the server response', () async {
@@ -117,6 +118,82 @@ void main() {
     expect(session.masterKeyMaterial, bootstrapMaterial.masterKeyMaterial);
   });
 
+  test('device approval start and consume transfer a wrapped master key', () async {
+    final cryptoService = SyncCryptoService();
+    final bootstrapMaterial = await cryptoService.createBootstrapMaterial(
+      email: 'demo@mnemosyne.local',
+      password: 'password',
+      recoveryKey: 'AAAA-BBBB-CCCC-DDDD',
+    );
+    late Map<String, dynamic> startPayload;
+
+    final client = SyncApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/v1/devices/approval/start') {
+          startPayload = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'expiresAt': '2026-04-09T19:30:00Z',
+            }),
+            201,
+            headers: const <String, String>{'content-type': 'application/json'},
+          );
+        }
+
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'accountId': 'acct_local',
+            'sessionToken': 'session_approval',
+            'wrappedMasterKeyForApproval': startPayload['wrappedKeyBlob'],
+            'encryptedMasterKeyForPassword':
+                bootstrapMaterial.encryptedMasterKeyForPassword,
+            'encryptedMasterKeyForRecovery':
+                bootstrapMaterial.encryptedMasterKeyForRecovery,
+            'recoveryKeyHint': 'saved-locally',
+          }),
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      }),
+      cryptoService: cryptoService,
+    );
+
+    final signedInSession = SyncSession(
+      accountId: 'acct_local',
+      sessionToken: 'session_bootstrap',
+      email: 'demo@mnemosyne.local',
+      encryptedMasterKeyForPassword:
+          bootstrapMaterial.encryptedMasterKeyForPassword,
+      encryptedMasterKeyForRecovery:
+          bootstrapMaterial.encryptedMasterKeyForRecovery,
+      wrappedMasterKeyForApproval: '',
+      masterKeyMaterial: bootstrapMaterial.masterKeyMaterial,
+      recoveryKeyHint: 'saved-locally',
+    );
+
+    final expiresAt = await client.startDeviceApproval(
+      baseUri: Uri.parse('http://127.0.0.1:8080'),
+      session: signedInSession,
+      approvalCode: 'ABCD-EFGH-IJKL',
+    );
+    expect(expiresAt, '2026-04-09T19:30:00Z');
+
+    final approvedSession = await client.consumeDeviceApproval(
+      baseUri: Uri.parse('http://127.0.0.1:8080'),
+      email: 'demo@mnemosyne.local',
+      approvalCode: 'ABCD-EFGH-IJKL',
+      deviceName: 'Mac Desktop',
+      platform: 'macos',
+    );
+
+    expect(approvedSession.sessionToken, 'session_approval');
+    expect(
+      approvedSession.masterKeyMaterial,
+      bootstrapMaterial.masterKeyMaterial,
+    );
+    expect(approvedSession.wrappedMasterKeyForApproval, isNotEmpty);
+  });
+
   test('syncVault pushes notes then pulls decrypted updates', () async {
     final cryptoService = SyncCryptoService();
     final bootstrapMaterial = await cryptoService.createBootstrapMaterial(
@@ -181,6 +258,7 @@ void main() {
             bootstrapMaterial.encryptedMasterKeyForPassword,
         encryptedMasterKeyForRecovery:
             bootstrapMaterial.encryptedMasterKeyForRecovery,
+        wrappedMasterKeyForApproval: '',
         masterKeyMaterial: bootstrapMaterial.masterKeyMaterial,
         recoveryKeyHint: 'saved-locally',
       ),
@@ -275,6 +353,7 @@ void main() {
             bootstrapMaterial.encryptedMasterKeyForPassword,
         encryptedMasterKeyForRecovery:
             bootstrapMaterial.encryptedMasterKeyForRecovery,
+        wrappedMasterKeyForApproval: '',
         masterKeyMaterial: bootstrapMaterial.masterKeyMaterial,
         recoveryKeyHint: 'saved-locally',
       ),

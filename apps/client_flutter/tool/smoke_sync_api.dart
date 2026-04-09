@@ -12,6 +12,9 @@ Future<void> main(List<String> args) async {
   final bootstrap = options.containsKey('bootstrap');
   final recover = options.containsKey('recover');
   final settingsSync = options.containsKey('settings-sync');
+  final startApproval = options.containsKey('start-approval');
+  final consumeApproval = options.containsKey('consume-approval');
+  final approvalCode = options['approval-code'] ?? 'ABCD-EFGH-IJKL';
 
   if (baseUrl == null || email == null || password == null) {
     stderr.writeln(
@@ -25,6 +28,23 @@ Future<void> main(List<String> args) async {
 
   final client = SyncApiClient();
   final baseUri = Uri.parse(baseUrl);
+
+  if (startApproval) {
+    final session = await client.login(
+      baseUri: baseUri,
+      email: email,
+      password: password,
+    );
+    final expiresAt = await client.startDeviceApproval(
+      baseUri: baseUri,
+      session: session,
+      approvalCode: approvalCode,
+    );
+    stdout.writeln('Approval started.');
+    stdout.writeln('Code: $approvalCode');
+    stdout.writeln('Expires at: $expiresAt');
+    return;
+  }
 
   final session = bootstrap
       ? await client.bootstrapAccount(
@@ -42,6 +62,14 @@ Future<void> main(List<String> args) async {
               email: email,
               recoveryKey: recoveryKey,
             )
+          : consumeApproval
+              ? await client.consumeDeviceApproval(
+                  baseUri: baseUri,
+                  email: email,
+                  approvalCode: approvalCode,
+                  deviceName: 'Smoke Runner',
+                  platform: Platform.operatingSystem,
+                )
           : await client.login(
               baseUri: baseUri,
               email: email,

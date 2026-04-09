@@ -13,6 +13,7 @@ var (
 	ErrInvalidSession     = errors.New("invalid session")
 	ErrChangeRejected     = errors.New("change rejected")
 	ErrObjectNotInTrash   = errors.New("object not in trash")
+	ErrInvalidApproval    = errors.New("invalid approval")
 )
 
 type accountRecord struct {
@@ -32,6 +33,7 @@ type MemoryStore struct {
 	sessions       map[string]string
 	changes        []SyncChange
 	latestChanges  map[string]SyncChange
+	pendingApprovals map[string]DeviceApproval
 	trashObjectIDs map[string]bool
 }
 
@@ -47,6 +49,7 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		sessions:       map[string]string{},
 		latestChanges:  map[string]SyncChange{},
+		pendingApprovals: map[string]DeviceApproval{},
 		trashObjectIDs: map[string]bool{},
 	}
 }
@@ -59,6 +62,16 @@ func authSessionForAccount(sessionToken string, account *accountRecord) AuthSess
 		EncryptedMasterKeyForRecovery: account.EncryptedMasterKeyForRecovery,
 		RecoveryKeyHint:               account.RecoveryKeyHint,
 	}
+}
+
+func authSessionForApproval(
+	sessionToken string,
+	account *accountRecord,
+	wrappedKeyBlob string,
+) AuthSession {
+	session := authSessionForAccount(sessionToken, account)
+	session.WrappedMasterKeyForApproval = wrappedKeyBlob
+	return session
 }
 
 func (s *MemoryStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error) {
@@ -125,6 +138,54 @@ func (s *MemoryStore) RegisterDevice(req DeviceRegistrationRequest) (Device, err
 	}
 	s.account.Devices[req.Device.DeviceID] = req.Device
 	return req.Device, nil
+}
+
+func (s *MemoryStore) StartDeviceApproval(
+	req DeviceApprovalStartRequest,
+) (DeviceApproval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	accountID, ok := s.sessions[req.SessionToken]
+	if !ok || s.account == nil || s.account.AccountID != accountID {
+		return DeviceApproval{}, ErrInvalidSession
+	}
+
+	approval := DeviceApproval{
+		AccountID:        s.account.AccountID,
+		Email:            s.account.Email,
+		ApprovalVerifier: req.ApprovalVerifier,
+		WrappedKeyBlob:   req.WrappedKeyBlob,
+		ExpiresAt:        time.Now().UTC().Add(10 * time.Minute).Format(time.RFC3339),
+	}
+	s.pendingApprovals[req.ApprovalVerifier] = approval
+	return approval, nil
+}
+
+func (s *MemoryStore) ConsumeDeviceApproval(
+	req DeviceApprovalConsumeRequest,
+) (AuthSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.account == nil || s.account.Email != req.Email {
+		return AuthSession{}, ErrInvalidApproval
+	}
+
+	approval, ok := s.pendingApprovals[req.ApprovalVerifier]
+	if !ok || approval.Email != req.Email || approval.WrappedKeyBlob == "" {
+		return AuthSession{}, ErrInvalidApproval
+	}
+	if parseLogicalTimestamp(approval.ExpiresAt).Before(time.Now().UTC()) {
+		delete(s.pendingApprovals, req.ApprovalVerifier)
+		return AuthSession{}, ErrInvalidApproval
+	}
+
+	s.account.Devices[req.Device.DeviceID] = req.Device
+	sessionToken := sessionTokenForCount(len(s.sessions) + 1)
+	s.sessions[sessionToken] = s.account.AccountID
+	delete(s.pendingApprovals, req.ApprovalVerifier)
+	return authSessionForApproval(sessionToken, s.account, approval.WrappedKeyBlob), nil
 }
 
 func (s *MemoryStore) Pull(req SyncPullRequest) (PullResponse, error) {

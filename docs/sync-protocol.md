@@ -51,6 +51,26 @@ Returns a session token plus the wrapped master-key material needed for the clie
 
 Registers a new device through recovery-key flow or an approval flow.
 
+### `POST /v1/devices/approval/start`
+
+Starts a short-lived one-time approval ticket from an already signed-in device. The client sends:
+
+- a valid session token
+- an approval verifier derived from the one-time code
+- a master-key blob wrapped locally with that one-time code
+
+The server stores the ticket temporarily but cannot decrypt the wrapped key material.
+
+### `POST /v1/devices/approval/consume`
+
+Consumes a short-lived approval ticket from a new device. The client sends:
+
+- the account email
+- the approval verifier derived from the one-time code
+- the new device identity
+
+The server returns a normal session plus the approval-wrapped master-key blob so the new device can unwrap the vault key locally.
+
 ### `POST /v1/sync/pull`
 
 Returns changes after the supplied cursor.
@@ -98,6 +118,7 @@ Bootstrap and login responses return:
   "sessionToken": "opaque-session-token",
   "encryptedMasterKeyForPassword": "base64",
   "encryptedMasterKeyForRecovery": "base64",
+  "wrappedMasterKeyForApproval": "base64",
   "recoveryKeyHint": "optional-short-hint"
 }
 ```

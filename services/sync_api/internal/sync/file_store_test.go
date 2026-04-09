@@ -240,3 +240,59 @@ func TestFileStoreLoadClearsStateWhenBackingFileIsRemoved(t *testing.T) {
 		t.Fatalf("bootstrap after clearing state: %v", err)
 	}
 }
+
+func TestFileStorePersistsDeviceApproval(t *testing.T) {
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "state.json")
+
+	store, err := NewFileStore(filePath)
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	session, err := store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	_, err = store.StartDeviceApproval(DeviceApprovalStartRequest{
+		SessionToken:     session.SessionToken,
+		ApprovalVerifier: "approval-proof",
+		WrappedKeyBlob:   "wrapped-approval-key",
+	})
+	if err != nil {
+		t.Fatalf("start approval: %v", err)
+	}
+
+	reloadedStore, err := NewFileStore(filePath)
+	if err != nil {
+		t.Fatalf("reload file store: %v", err)
+	}
+
+	approvedSession, err := reloadedStore.ConsumeDeviceApproval(DeviceApprovalConsumeRequest{
+		Email:            "user@example.com",
+		ApprovalVerifier: "approval-proof",
+		Device: Device{
+			DeviceID:   "device-2",
+			DeviceName: "Mac Desktop",
+			Platform:   "macos",
+		},
+	})
+	if err != nil {
+		t.Fatalf("consume approval: %v", err)
+	}
+	if approvedSession.WrappedMasterKeyForApproval != "wrapped-approval-key" {
+		t.Fatalf("expected wrapped approval key in session, got %q", approvedSession.WrappedMasterKeyForApproval)
+	}
+}

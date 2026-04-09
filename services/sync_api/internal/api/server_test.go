@@ -82,6 +82,54 @@ func TestRecover(t *testing.T) {
 	}
 }
 
+func TestDeviceApprovalStartAndConsume(t *testing.T) {
+	store := sync.NewMemoryStore()
+	server := NewServer(store)
+
+	session, err := store.Bootstrap(sync.AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		RecoveryKeyHint:               "first pet",
+		Device: sync.Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := newJSONRequest(t, http.MethodPost, "/v1/devices/approval/start", sync.DeviceApprovalStartRequest{
+		SessionToken:     session.SessionToken,
+		ApprovalVerifier: "approval-proof",
+		WrappedKeyBlob:   "wrapped-key",
+	})
+	server.Routes().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected status %d, got %d", http.StatusCreated, recorder.Code)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = newJSONRequest(t, http.MethodPost, "/v1/devices/approval/consume", sync.DeviceApprovalConsumeRequest{
+		Email:            "user@example.com",
+		ApprovalVerifier: "approval-proof",
+		Device: sync.Device{
+			DeviceID:   "device-2",
+			DeviceName: "Mac Desktop",
+			Platform:   "macos",
+		},
+	})
+	server.Routes().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+}
+
 func TestPushThenPull(t *testing.T) {
 	store := sync.NewMemoryStore()
 	server := NewServer(store)

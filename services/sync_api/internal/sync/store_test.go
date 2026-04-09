@@ -110,3 +110,51 @@ func TestMemoryStoreRecoversWithRecoveryVerifier(t *testing.T) {
 		t.Fatal("expected recovery to return a session token")
 	}
 }
+
+func TestMemoryStoreConsumesDeviceApproval(t *testing.T) {
+	store := NewMemoryStore()
+
+	session, err := store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	approval, err := store.StartDeviceApproval(DeviceApprovalStartRequest{
+		SessionToken:     session.SessionToken,
+		ApprovalVerifier: "approval-proof",
+		WrappedKeyBlob:   "wrapped-approval-key",
+	})
+	if err != nil {
+		t.Fatalf("start approval: %v", err)
+	}
+	if approval.WrappedKeyBlob != "wrapped-approval-key" {
+		t.Fatalf("expected wrapped key blob to persist, got %q", approval.WrappedKeyBlob)
+	}
+
+	approvedSession, err := store.ConsumeDeviceApproval(DeviceApprovalConsumeRequest{
+		Email:            "user@example.com",
+		ApprovalVerifier: "approval-proof",
+		Device: Device{
+			DeviceID:   "device-2",
+			DeviceName: "Mac Desktop",
+			Platform:   "macos",
+		},
+	})
+	if err != nil {
+		t.Fatalf("consume approval: %v", err)
+	}
+	if approvedSession.WrappedMasterKeyForApproval != "wrapped-approval-key" {
+		t.Fatalf("expected wrapped approval key in session, got %q", approvedSession.WrappedMasterKeyForApproval)
+	}
+}

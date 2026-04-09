@@ -111,6 +111,15 @@ class SyncCryptoService {
     return _passwordVerifier(passwordVerifierKey);
   }
 
+  Future<String> approvalVerifierForCode(String approvalCode) async {
+    final approvalVerifierKey = await _deriveKey(
+      _normalizeApprovalCode(approvalCode),
+      salt: utf8.encode('mnemosyne-approval-verifier'),
+      context: 'approval-verifier',
+    );
+    return _passwordVerifier(approvalVerifierKey);
+  }
+
   Future<String> unwrapMasterKeyWithPassword({
     required String email,
     required String password,
@@ -164,6 +173,41 @@ class SyncCryptoService {
     final masterKey = await _decryptEnvelope(
       envelope: envelope,
       secretKeyBytes: recoveryDerivedKey,
+    );
+    return _encodeBytes(masterKey);
+  }
+
+  Future<String> wrapMasterKeyWithApprovalCode({
+    required String approvalCode,
+    required String masterKeyMaterial,
+  }) async {
+    final approvalSalt = _randomBytes(_saltLength);
+    final approvalKey = await _deriveKey(
+      _normalizeApprovalCode(approvalCode),
+      salt: approvalSalt,
+      context: 'device-approval',
+    );
+    return _wrapKey(
+      _decodeBytes(masterKeyMaterial),
+      wrappingKey: approvalKey,
+      salt: approvalSalt,
+    );
+  }
+
+  Future<String> unwrapMasterKeyWithApprovalCode({
+    required String approvalCode,
+    required String wrappedKeyBlob,
+  }) async {
+    final envelope = _decodeEnvelope(wrappedKeyBlob);
+    final approvalKey = await _deriveKey(
+      _normalizeApprovalCode(approvalCode),
+      salt: _decodeBytes(envelope['salt'] as String? ?? ''),
+      context: 'device-approval',
+      iterations: (envelope['iterations'] as num?)?.toInt() ?? _kdfIterations,
+    );
+    final masterKey = await _decryptEnvelope(
+      envelope: envelope,
+      secretKeyBytes: approvalKey,
     );
     return _encodeBytes(masterKey);
   }
@@ -304,6 +348,10 @@ class SyncCryptoService {
 
   String _normalizeRecoveryKey(String recoveryKey) {
     return recoveryKey.replaceAll('-', '').replaceAll(' ', '').toUpperCase();
+  }
+
+  String _normalizeApprovalCode(String approvalCode) {
+    return approvalCode.replaceAll('-', '').replaceAll(' ', '').toUpperCase();
   }
 
   String _encodeBytes(List<int> bytes) {

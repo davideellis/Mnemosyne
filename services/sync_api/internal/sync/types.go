@@ -35,6 +35,26 @@ type DeviceRegistrationRequest struct {
 	WrappedKeyBlob string `json:"wrappedKeyBlob"`
 }
 
+type DeviceApprovalStartRequest struct {
+	SessionToken     string `json:"sessionToken"`
+	ApprovalVerifier string `json:"approvalVerifier"`
+	WrappedKeyBlob   string `json:"wrappedKeyBlob"`
+}
+
+type DeviceApprovalConsumeRequest struct {
+	Email            string `json:"email"`
+	ApprovalVerifier string `json:"approvalVerifier"`
+	Device           Device `json:"device"`
+}
+
+type DeviceApproval struct {
+	AccountID        string `json:"accountId"`
+	Email            string `json:"email"`
+	ApprovalVerifier string `json:"approvalVerifier"`
+	WrappedKeyBlob   string `json:"wrappedKeyBlob"`
+	ExpiresAt        string `json:"expiresAt"`
+}
+
 type SyncChange struct {
 	ChangeID          string `json:"changeId"`
 	ObjectID          string `json:"objectId"`
@@ -67,6 +87,7 @@ type AuthSession struct {
 	AccountID                     string `json:"accountId"`
 	EncryptedMasterKeyForPassword string `json:"encryptedMasterKeyForPassword,omitempty"`
 	EncryptedMasterKeyForRecovery string `json:"encryptedMasterKeyForRecovery,omitempty"`
+	WrappedMasterKeyForApproval   string `json:"wrappedMasterKeyForApproval,omitempty"`
 	RecoveryKeyHint               string `json:"recoveryKeyHint,omitempty"`
 }
 

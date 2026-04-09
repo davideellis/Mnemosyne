@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -437,6 +438,110 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     }
   }
 
+  Future<void> _startDeviceApproval() async {
+    final session = _session;
+    if (session == null || session.masterKeyMaterial.isEmpty) {
+      setState(() {
+        _statusLabel = 'Approval unavailable';
+        _syncMessage = 'Sign in on an existing device before approving another one.';
+      });
+      return;
+    }
+
+    final approvalCode = _generateApprovalCode();
+    setState(() {
+      _statusLabel = 'Creating approval code';
+      _syncMessage = null;
+    });
+
+    try {
+      final expiresAt = await _syncApiClient.startDeviceApproval(
+        baseUri: _parseBaseUri(),
+        session: session,
+        approvalCode: approvalCode,
+      );
+      if (!mounted) {
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (context) => _ApprovalCodeDialog(
+          approvalCode: approvalCode,
+          expiresAt: expiresAt,
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _statusLabel = 'Approval ready';
+        _syncMessage = 'Approval code created for a new device.';
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _statusLabel = 'Approval failed';
+        _syncMessage = error.toString();
+      });
+    }
+  }
+
+  Future<void> _consumeDeviceApproval() async {
+    final approvalCode = await showDialog<String>(
+      context: context,
+      builder: (context) => const _ApprovalCodeEntryDialog(),
+    );
+    if (approvalCode == null || approvalCode.trim().isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _isAuthenticating = true;
+      _syncMessage = null;
+      _statusLabel = 'Approving device';
+    });
+
+    try {
+      final session = await _syncApiClient.consumeDeviceApproval(
+        baseUri: _parseBaseUri(),
+        email: _emailController.text.trim(),
+        approvalCode: approvalCode.trim(),
+        deviceName: _currentDeviceName(),
+        platform: Platform.operatingSystem,
+      );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _session = session;
+        _statusLabel = 'Device approved';
+        _syncMessage = 'Approved this device for ${session.email}.';
+      });
+      await _secureKeyRepository.saveMasterKey(
+        accountId: session.accountId,
+        masterKeyMaterial: session.masterKeyMaterial,
+      );
+      await _persistState();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _statusLabel = 'Approval failed';
+        _syncMessage = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAuthenticating = false;
+        });
+      }
+    }
+  }
+
   Future<void> _authenticate({required bool bootstrap}) async {
     setState(() {
       _isAuthenticating = true;
@@ -660,6 +765,28 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       ).join();
     });
     return groups.join('-');
+  }
+
+  String _generateApprovalCode() {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final random = Random.secure();
+    final groups = List<String>.generate(3, (_) {
+      return List<String>.generate(
+        4,
+        (_) => alphabet[random.nextInt(alphabet.length)],
+      ).join();
+    });
+    return groups.join('-');
+  }
+
+  String _currentDeviceName() {
+    return switch (Platform.operatingSystem) {
+      'windows' => 'Windows Desktop',
+      'macos' => 'Mac Desktop',
+      'ios' => 'iPhone or iPad',
+      'android' => 'Android Device',
+      _ => 'Mnemosyne Device',
+    };
   }
 
   String _normalizeRelativePath(String relativePath) {
@@ -1192,10 +1319,12 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                             session: _session,
                             syncMessage: _syncMessage,
                             isAuthenticating: _isAuthenticating,
-                            onBootstrap: _bootstrapAccount,
-                            onLogin: _login,
-                            onRecover: _recover,
-                          ),
+                          onBootstrap: _bootstrapAccount,
+                          onLogin: _login,
+                          onRecover: _recover,
+                          onConsumeApproval: _consumeDeviceApproval,
+                          onStartApproval: _startDeviceApproval,
+                        ),
                         ],
                       ),
                     ),
@@ -1488,6 +1617,98 @@ class _RecoveryKeyDialogState extends State<_RecoveryKeyDialog> {
             Navigator.of(context).pop(recoveryKey);
           },
           child: const Text('Recover'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ApprovalCodeDialog extends StatelessWidget {
+  const _ApprovalCodeDialog({
+    required this.approvalCode,
+    required this.expiresAt,
+  });
+
+  final String approvalCode;
+  final String expiresAt;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Approve a new device'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Enter this code on the new device. It can only be used once.',
+          ),
+          const SizedBox(height: 12),
+          SelectableText(
+            approvalCode,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.2,
+                ),
+          ),
+          if (expiresAt.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text('Expires at $expiresAt'),
+          ],
+        ],
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Done'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ApprovalCodeEntryDialog extends StatefulWidget {
+  const _ApprovalCodeEntryDialog();
+
+  @override
+  State<_ApprovalCodeEntryDialog> createState() => _ApprovalCodeEntryDialogState();
+}
+
+class _ApprovalCodeEntryDialogState extends State<_ApprovalCodeEntryDialog> {
+  final TextEditingController _approvalCodeController = TextEditingController();
+
+  @override
+  void dispose() {
+    _approvalCodeController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Enter approval code'),
+      content: TextField(
+        controller: _approvalCodeController,
+        decoration: const InputDecoration(
+          labelText: 'Approval code',
+          hintText: 'AAAA-BBBB-CCCC',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final approvalCode = _approvalCodeController.text.trim();
+            if (approvalCode.isEmpty) {
+              return;
+            }
+            Navigator.of(context).pop(approvalCode);
+          },
+          child: const Text('Approve'),
         ),
       ],
     );

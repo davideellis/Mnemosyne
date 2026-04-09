@@ -50,6 +50,8 @@ class PersistedAppState {
                   sessionValue.encryptedMasterKeyForPassword,
               'encryptedMasterKeyForRecovery':
                   sessionValue.encryptedMasterKeyForRecovery,
+              'wrappedMasterKeyForApproval':
+                  sessionValue.wrappedMasterKeyForApproval,
               'recoveryKeyHint': sessionValue.recoveryKeyHint,
             },
     };
@@ -88,6 +90,8 @@ class PersistedAppState {
                   sessionJson['encryptedMasterKeyForPassword'] as String? ?? '',
               encryptedMasterKeyForRecovery:
                   sessionJson['encryptedMasterKeyForRecovery'] as String? ?? '',
+              wrappedMasterKeyForApproval:
+                  sessionJson['wrappedMasterKeyForApproval'] as String? ?? '',
               masterKeyMaterial:
                   sessionJson['masterKeyMaterial'] as String? ?? '',
               recoveryKeyHint: sessionJson['recoveryKeyHint'] as String? ?? '',

@@ -148,6 +148,68 @@ func (s *DynamoStore) RegisterDevice(req DeviceRegistrationRequest) (Device, err
 	return req.Device, nil
 }
 
+func (s *DynamoStore) StartDeviceApproval(
+	req DeviceApprovalStartRequest,
+) (DeviceApproval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.load(); err != nil {
+		return DeviceApproval{}, err
+	}
+	if _, ok := s.state.Sessions[req.SessionToken]; !ok || s.state.Account == nil {
+		return DeviceApproval{}, ErrInvalidSession
+	}
+
+	approval := DeviceApproval{
+		AccountID:        s.state.Account.AccountID,
+		Email:            s.state.Account.Email,
+		ApprovalVerifier: req.ApprovalVerifier,
+		WrappedKeyBlob:   req.WrappedKeyBlob,
+		ExpiresAt:        time.Now().UTC().Add(10 * time.Minute).Format(time.RFC3339),
+	}
+	s.state.PendingApprovals[req.ApprovalVerifier] = approval
+
+	if err := s.save(); err != nil {
+		return DeviceApproval{}, err
+	}
+	return approval, nil
+}
+
+func (s *DynamoStore) ConsumeDeviceApproval(
+	req DeviceApprovalConsumeRequest,
+) (AuthSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.load(); err != nil {
+		return AuthSession{}, err
+	}
+	if s.state.Account == nil || s.state.Account.Email != req.Email {
+		return AuthSession{}, ErrInvalidApproval
+	}
+
+	approval, ok := s.state.PendingApprovals[req.ApprovalVerifier]
+	if !ok || approval.Email != req.Email || approval.WrappedKeyBlob == "" {
+		return AuthSession{}, ErrInvalidApproval
+	}
+	if parseLogicalTimestamp(approval.ExpiresAt).Before(time.Now().UTC()) {
+		delete(s.state.PendingApprovals, req.ApprovalVerifier)
+		_ = s.save()
+		return AuthSession{}, ErrInvalidApproval
+	}
+
+	s.state.Account.Devices[req.Device.DeviceID] = req.Device
+	sessionToken := sessionTokenForCount(len(s.state.Sessions) + 1)
+	s.state.Sessions[sessionToken] = s.state.Account.AccountID
+	delete(s.state.PendingApprovals, req.ApprovalVerifier)
+
+	if err := s.save(); err != nil {
+		return AuthSession{}, err
+	}
+	return authSessionForApproval(sessionToken, s.state.Account, approval.WrappedKeyBlob), nil
+}
+
 func (s *DynamoStore) Pull(req SyncPullRequest) (PullResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -60,6 +60,8 @@ class SyncApiClient {
       encryptedMasterKeyForRecovery:
           body['encryptedMasterKeyForRecovery'] as String? ??
               bootstrapMaterial.encryptedMasterKeyForRecovery,
+      wrappedMasterKeyForApproval:
+          body['wrappedMasterKeyForApproval'] as String? ?? '',
       masterKeyMaterial: bootstrapMaterial.masterKeyMaterial,
       recoveryKeyHint: body['recoveryKeyHint'] as String? ?? recoveryKeyHint,
     );
@@ -96,6 +98,8 @@ class SyncApiClient {
       encryptedMasterKeyForPassword: encryptedMasterKeyForPassword,
       encryptedMasterKeyForRecovery:
           body['encryptedMasterKeyForRecovery'] as String? ?? '',
+      wrappedMasterKeyForApproval:
+          body['wrappedMasterKeyForApproval'] as String? ?? '',
       masterKeyMaterial: masterKeyMaterial,
       recoveryKeyHint: body['recoveryKeyHint'] as String? ?? '',
     );
@@ -126,15 +130,70 @@ class SyncApiClient {
             encryptedMasterKeyForRecovery: encryptedMasterKeyForRecovery,
           );
 
-    return SyncSession(
-      accountId: body['accountId'] as String,
-      sessionToken: body['sessionToken'] as String,
+    return _sessionFromBody(
+      body,
       email: email,
-      encryptedMasterKeyForPassword:
-          body['encryptedMasterKeyForPassword'] as String? ?? '',
-      encryptedMasterKeyForRecovery: encryptedMasterKeyForRecovery,
       masterKeyMaterial: masterKeyMaterial,
-      recoveryKeyHint: body['recoveryKeyHint'] as String? ?? '',
+    );
+  }
+
+  Future<String> startDeviceApproval({
+    required Uri baseUri,
+    required SyncSession session,
+    required String approvalCode,
+  }) async {
+    final wrappedKeyBlob = await _cryptoService.wrapMasterKeyWithApprovalCode(
+      approvalCode: approvalCode,
+      masterKeyMaterial: session.masterKeyMaterial,
+    );
+    final response = await _post(
+      baseUri,
+      '/v1/devices/approval/start',
+      <String, dynamic>{
+        'sessionToken': session.sessionToken,
+        'approvalVerifier':
+            await _cryptoService.approvalVerifierForCode(approvalCode),
+        'wrappedKeyBlob': wrappedKeyBlob,
+      },
+    );
+    final body = _decodeJson(response);
+    return body['expiresAt'] as String? ?? '';
+  }
+
+  Future<SyncSession> consumeDeviceApproval({
+    required Uri baseUri,
+    required String email,
+    required String approvalCode,
+    required String deviceName,
+    required String platform,
+  }) async {
+    final response = await _post(
+      baseUri,
+      '/v1/devices/approval/consume',
+      <String, dynamic>{
+        'email': email,
+        'approvalVerifier':
+            await _cryptoService.approvalVerifierForCode(approvalCode),
+        'device': <String, dynamic>{
+          'deviceId': _deviceId(deviceName, platform),
+          'deviceName': deviceName,
+          'platform': platform,
+        },
+      },
+    );
+
+    final body = _decodeJson(response);
+    final wrappedKeyBlob = body['wrappedMasterKeyForApproval'] as String? ?? '';
+    final masterKeyMaterial = wrappedKeyBlob.isEmpty
+        ? ''
+        : await _cryptoService.unwrapMasterKeyWithApprovalCode(
+            approvalCode: approvalCode,
+            wrappedKeyBlob: wrappedKeyBlob,
+          );
+    return _sessionFromBody(
+      body,
+      email: email,
+      masterKeyMaterial: masterKeyMaterial,
     );
   }
 
@@ -312,6 +371,26 @@ class SyncApiClient {
           .toList(growable: false),
       settings: (metadata['settings'] as Map<dynamic, dynamic>? ?? const {})
           .map((key, value) => MapEntry(key as String, value)),
+    );
+  }
+
+  SyncSession _sessionFromBody(
+    Map<String, dynamic> body, {
+    required String email,
+    required String masterKeyMaterial,
+  }) {
+    return SyncSession(
+      accountId: body['accountId'] as String,
+      sessionToken: body['sessionToken'] as String,
+      email: email,
+      encryptedMasterKeyForPassword:
+          body['encryptedMasterKeyForPassword'] as String? ?? '',
+      encryptedMasterKeyForRecovery:
+          body['encryptedMasterKeyForRecovery'] as String? ?? '',
+      wrappedMasterKeyForApproval:
+          body['wrappedMasterKeyForApproval'] as String? ?? '',
+      masterKeyMaterial: masterKeyMaterial,
+      recoveryKeyHint: body['recoveryKeyHint'] as String? ?? '',
     );
   }
 
