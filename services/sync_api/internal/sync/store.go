@@ -153,6 +153,10 @@ func (s *MemoryStore) Recover(req RecoveryRequest) (AuthSession, error) {
 
 	sessionToken := sessionTokenForCount(len(s.sessions) + 1)
 	s.sessions[sessionToken] = s.account.AccountID
+	if req.Device.DeviceID != "" {
+		device := touchDevice(req.Device, currentTimestamp())
+		s.account.Devices[device.DeviceID] = device
+	}
 
 	return authSessionForAccount(sessionToken, s.account), nil
 }
@@ -167,6 +171,10 @@ func (s *MemoryStore) Login(req LoginRequest) (AuthSession, error) {
 
 	sessionToken := sessionTokenForCount(len(s.sessions) + 1)
 	s.sessions[sessionToken] = s.account.AccountID
+	if req.Device.DeviceID != "" {
+		device := touchDevice(req.Device, currentTimestamp())
+		s.account.Devices[device.DeviceID] = device
+	}
 
 	return authSessionForAccount(sessionToken, s.account), nil
 }

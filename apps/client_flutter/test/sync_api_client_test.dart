@@ -55,6 +55,12 @@ void main() {
     final client = SyncApiClient(
       httpClient: MockClient((request) async {
         expect(request.url.path, '/v1/auth/login');
+        final payload = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(payload['device'], isA<Map<String, dynamic>>());
+        expect(
+          (payload['device'] as Map<String, dynamic>)['deviceName'],
+          'Windows Desktop',
+        );
         return http.Response(
           jsonEncode(<String, dynamic>{
             'accountId': 'acct_local',
@@ -75,6 +81,8 @@ void main() {
       baseUri: Uri.parse('http://127.0.0.1:8080'),
       email: 'demo@mnemosyne.local',
       password: 'password',
+      deviceName: 'Windows Desktop',
+      platform: 'windows',
     );
 
     expect(session.sessionToken, 'session_login');
@@ -122,6 +130,12 @@ void main() {
     final client = SyncApiClient(
       httpClient: MockClient((request) async {
         expect(request.url.path, '/v1/auth/recover');
+        final payload = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(payload['device'], isA<Map<String, dynamic>>());
+        expect(
+          (payload['device'] as Map<String, dynamic>)['platform'],
+          'windows',
+        );
         return http.Response(
           jsonEncode(<String, dynamic>{
             'accountId': 'acct_local',
@@ -143,6 +157,8 @@ void main() {
       baseUri: Uri.parse('http://127.0.0.1:8080'),
       email: 'demo@mnemosyne.local',
       recoveryKey: 'AAAA-BBBB-CCCC-DDDD',
+      deviceName: 'Windows Desktop',
+      platform: 'windows',
     );
 
     expect(session.sessionToken, 'session_recovery');

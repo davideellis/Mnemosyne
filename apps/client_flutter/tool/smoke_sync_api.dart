@@ -36,6 +36,8 @@ Future<void> main(List<String> args) async {
       baseUri: baseUri,
       email: email,
       password: password,
+      deviceName: 'Smoke Runner',
+      platform: Platform.operatingSystem,
     );
     final expiresAt = await client.startDeviceApproval(
       baseUri: baseUri,
@@ -53,6 +55,8 @@ Future<void> main(List<String> args) async {
       baseUri: baseUri,
       email: email,
       password: password,
+      deviceName: 'Smoke Runner',
+      platform: Platform.operatingSystem,
     );
     final devices = await client.listDevices(
       baseUri: baseUri,
@@ -74,6 +78,8 @@ Future<void> main(List<String> args) async {
       baseUri: baseUri,
       email: email,
       password: password,
+      deviceName: 'Smoke Runner',
+      platform: Platform.operatingSystem,
     );
     await client.logout(
       baseUri: baseUri,
@@ -98,6 +104,8 @@ Future<void> main(List<String> args) async {
               baseUri: baseUri,
               email: email,
               recoveryKey: recoveryKey,
+              deviceName: 'Smoke Runner',
+              platform: Platform.operatingSystem,
             )
           : consumeApproval
               ? await client.consumeDeviceApproval(
@@ -111,6 +119,8 @@ Future<void> main(List<String> args) async {
                   baseUri: baseUri,
                   email: email,
                   password: password,
+                  deviceName: 'Smoke Runner',
+                  platform: Platform.operatingSystem,
                 );
 
   final objectId = 'smoke-${DateTime.now().toUtc().millisecondsSinceEpoch}';
@@ -159,6 +169,8 @@ Future<void> main(List<String> args) async {
     baseUri: baseUri,
     email: email,
     password: password,
+    deviceName: 'Smoke Runner',
+    platform: Platform.operatingSystem,
   );
   final pullResult = await client.pullVault(
     baseUri: baseUri,

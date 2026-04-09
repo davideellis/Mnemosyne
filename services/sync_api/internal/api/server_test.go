@@ -38,6 +38,11 @@ func TestBootstrapAndLogin(t *testing.T) {
 	loginBody := sync.LoginRequest{
 		Email:            "user@example.com",
 		PasswordVerifier: "pw-proof",
+		Device: sync.Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
 	}
 
 	recorder = httptest.NewRecorder()
@@ -74,6 +79,11 @@ func TestRecover(t *testing.T) {
 	request := newJSONRequest(t, http.MethodPost, "/v1/auth/recover", sync.RecoveryRequest{
 		Email:            "user@example.com",
 		RecoveryVerifier: "rec-proof",
+		Device: sync.Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
 	})
 	server.Routes().ServeHTTP(recorder, request)
 

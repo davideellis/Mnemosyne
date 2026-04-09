@@ -84,6 +84,8 @@ class SyncApiClient {
     required Uri baseUri,
     required String email,
     required String password,
+    required String deviceName,
+    required String platform,
   }) async {
     final response = await _post(
       baseUri,
@@ -91,6 +93,11 @@ class SyncApiClient {
       <String, dynamic>{
         'email': email,
         'passwordVerifier': await _passwordVerifier(email, password),
+        'device': <String, dynamic>{
+          'deviceId': _deviceId(deviceName, platform),
+          'deviceName': deviceName,
+          'platform': platform,
+        },
       },
     );
 
@@ -135,6 +142,8 @@ class SyncApiClient {
     required Uri baseUri,
     required String email,
     required String recoveryKey,
+    required String deviceName,
+    required String platform,
   }) async {
     final response = await _post(
       baseUri,
@@ -143,6 +152,11 @@ class SyncApiClient {
         'email': email,
         'recoveryVerifier':
             await _cryptoService.recoveryVerifierForKey(recoveryKey),
+        'device': <String, dynamic>{
+          'deviceId': _deviceId(deviceName, platform),
+          'deviceName': deviceName,
+          'platform': platform,
+        },
       },
     );
 

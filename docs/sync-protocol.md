@@ -43,9 +43,37 @@ Request:
 
 Returns a session token plus the wrapped master-key material needed for the client to recover the vault key locally.
 
+Request:
+
+```json
+{
+  "email": "user@example.com",
+  "passwordVerifier": "opaque-string",
+  "device": {
+    "deviceId": "uuid",
+    "deviceName": "Windows Laptop",
+    "platform": "windows"
+  }
+}
+```
+
 ### `POST /v1/auth/recover`
 
 Returns a session token plus the wrapped master-key material needed for the client to recover the vault key with the recovery key.
+
+Request:
+
+```json
+{
+  "email": "user@example.com",
+  "recoveryVerifier": "opaque-string",
+  "device": {
+    "deviceId": "uuid",
+    "deviceName": "Windows Laptop",
+    "platform": "windows"
+  }
+}
+```
 
 ### `POST /v1/devices/register`
 

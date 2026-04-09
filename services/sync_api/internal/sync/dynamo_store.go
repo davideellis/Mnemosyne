@@ -99,6 +99,10 @@ func (s *DynamoStore) Recover(req RecoveryRequest) (AuthSession, error) {
 
 	sessionToken := sessionTokenForCount(len(s.state.Sessions) + 1)
 	s.state.Sessions[sessionToken] = s.state.Account.AccountID
+	if req.Device.DeviceID != "" {
+		device := touchDevice(req.Device, currentTimestamp())
+		s.state.Account.Devices[device.DeviceID] = device
+	}
 
 	if err := s.save(); err != nil {
 		return AuthSession{}, err
@@ -122,6 +126,10 @@ func (s *DynamoStore) Login(req LoginRequest) (AuthSession, error) {
 
 	sessionToken := sessionTokenForCount(len(s.state.Sessions) + 1)
 	s.state.Sessions[sessionToken] = s.state.Account.AccountID
+	if req.Device.DeviceID != "" {
+		device := touchDevice(req.Device, currentTimestamp())
+		s.state.Account.Devices[device.DeviceID] = device
+	}
 
 	if err := s.save(); err != nil {
 		return AuthSession{}, err

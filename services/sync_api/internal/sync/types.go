@@ -20,6 +20,7 @@ type AccountBootstrapRequest struct {
 type LoginRequest struct {
 	Email            string `json:"email"`
 	PasswordVerifier string `json:"passwordVerifier"`
+	Device           Device `json:"device"`
 }
 
 type LogoutRequest struct {
@@ -29,6 +30,7 @@ type LogoutRequest struct {
 type RecoveryRequest struct {
 	Email            string `json:"email"`
 	RecoveryVerifier string `json:"recoveryVerifier"`
+	Device           Device `json:"device"`
 }
 
 type DeviceRegistrationRequest struct {

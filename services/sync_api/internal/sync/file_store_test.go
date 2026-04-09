@@ -180,12 +180,26 @@ func TestFileStorePersistsRecoveryVerifier(t *testing.T) {
 	session, err := reloadedStore.Recover(RecoveryRequest{
 		Email:            "user@example.com",
 		RecoveryVerifier: "rec-proof",
+		Device: Device{
+			DeviceID:   "device-2",
+			DeviceName: "Mac Desktop",
+			Platform:   "macos",
+		},
 	})
 	if err != nil {
 		t.Fatalf("recover: %v", err)
 	}
 	if session.SessionToken == "" {
 		t.Fatal("expected recovery to return a session token")
+	}
+	devices, err := reloadedStore.ListDevices(DeviceListRequest{
+		SessionToken: session.SessionToken,
+	})
+	if err != nil {
+		t.Fatalf("list devices after recovery: %v", err)
+	}
+	if len(devices) != 2 {
+		t.Fatalf("expected recovery device to persist, got %d devices", len(devices))
 	}
 }
 

@@ -414,6 +414,8 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         baseUri: _parseBaseUri(),
         email: _emailController.text.trim(),
         recoveryKey: recoveryKey.trim(),
+        deviceName: _currentDeviceName(),
+        platform: Platform.operatingSystem,
       );
       if (!mounted) {
         return;
@@ -651,6 +653,8 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
               baseUri: baseUri,
               email: email,
               password: password,
+              deviceName: _currentDeviceName(),
+              platform: Platform.operatingSystem,
             );
 
       if (!mounted) {
