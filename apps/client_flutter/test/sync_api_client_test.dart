@@ -11,6 +11,8 @@ void main() {
     final client = SyncApiClient(
       httpClient: MockClient((request) async {
         expect(request.url.path, '/v1/account/bootstrap');
+        final payload = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(payload['recoveryKeyHint'], 'local-safe');
         return http.Response(
           jsonEncode(<String, dynamic>{
             'accountId': 'acct_local',
@@ -26,6 +28,8 @@ void main() {
       baseUri: Uri.parse('http://127.0.0.1:8080'),
       email: 'demo@mnemosyne.local',
       password: 'password',
+      recoveryKey: 'AAA-BBB-CCC-DDD',
+      recoveryKeyHint: 'local-safe',
       deviceName: 'Windows Desktop',
       platform: 'windows',
     );

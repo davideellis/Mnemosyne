@@ -15,6 +15,8 @@ class SyncApiClient {
     required Uri baseUri,
     required String email,
     required String password,
+    required String recoveryKey,
+    required String recoveryKeyHint,
     required String deviceName,
     required String platform,
   }) async {
@@ -26,8 +28,8 @@ class SyncApiClient {
         'passwordVerifier': _passwordVerifier(email, password),
         'encryptedMasterKeyForPassword': _opaqueEnvelope('master:$email:pw'),
         'encryptedMasterKeyForRecovery':
-            _opaqueEnvelope('master:$email:recovery'),
-        'recoveryKeyHint': 'saved-locally',
+            _opaqueEnvelope('master:$email:$recoveryKey'),
+        'recoveryKeyHint': recoveryKeyHint,
         'device': <String, dynamic>{
           'deviceId': _deviceId(deviceName, platform),
           'deviceName': deviceName,

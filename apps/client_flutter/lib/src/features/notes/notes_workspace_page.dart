@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 
@@ -308,12 +309,16 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       final baseUri = _parseBaseUri();
       final email = _emailController.text.trim();
       final password = _passwordController.text;
+      final recoveryKey = bootstrap ? _generateRecoveryKey() : null;
+      final recoveryKeyHint = recoveryKey == null ? null : 'saved-locally';
 
       final session = bootstrap
           ? await _syncApiClient.bootstrapAccount(
               baseUri: baseUri,
               email: email,
               password: password,
+              recoveryKey: recoveryKey!,
+              recoveryKeyHint: recoveryKeyHint!,
               deviceName: 'Windows Desktop',
               platform: 'windows',
             )
@@ -330,10 +335,14 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       setState(() {
         _session = session;
         _statusLabel = 'Signed in';
-        _syncMessage =
-            '${bootstrap ? 'Created' : 'Loaded'} account ${session.email}';
+        _syncMessage = bootstrap
+            ? 'Account created. Save your recovery key before you continue.'
+            : 'Loaded account ${session.email}';
       });
       await _persistState();
+      if (bootstrap && recoveryKey != null && mounted) {
+        await _showRecoveryKeyDialog(recoveryKey);
+      }
     } catch (error) {
       if (!mounted) {
         return;
@@ -460,6 +469,55 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       throw Exception('Enter a valid sync API URL.');
     }
     return parsed;
+  }
+
+  String _generateRecoveryKey() {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final random = Random.secure();
+    final groups = List<String>.generate(4, (_) {
+      return List<String>.generate(
+        4,
+        (_) => alphabet[random.nextInt(alphabet.length)],
+      ).join();
+    });
+    return groups.join('-');
+  }
+
+  Future<void> _showRecoveryKeyDialog(String recoveryKey) {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Save your recovery key'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'This key is required to recover your encrypted notes if you lose your password.',
+            ),
+            const SizedBox(height: 12),
+            SelectableText(
+              recoveryKey,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.2,
+                  ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'The server cannot recover this key for you.',
+            ),
+          ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('I saved it'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _persistState() {

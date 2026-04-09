@@ -63,6 +63,11 @@ class OnboardingCard extends StatelessWidget {
                 obscureText: true,
               ),
               const SizedBox(height: 12),
+              const Text(
+                'Creating an account will generate a recovery key. Keep it safe because the server cannot recover it for you.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
