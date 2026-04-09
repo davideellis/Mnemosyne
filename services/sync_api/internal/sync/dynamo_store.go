@@ -60,6 +60,9 @@ func (s *DynamoStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := s.load(); err != nil {
+		return AuthSession{}, err
+	}
 	if s.state.Account != nil {
 		return AuthSession{}, ErrAccountExists
 	}
@@ -88,6 +91,9 @@ func (s *DynamoStore) Login(req LoginRequest) (AuthSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := s.load(); err != nil {
+		return AuthSession{}, err
+	}
 	if s.state.Account == nil ||
 		s.state.Account.Email != req.Email ||
 		s.state.Account.PasswordVerifier != req.PasswordVerifier {
@@ -108,6 +114,9 @@ func (s *DynamoStore) RegisterDevice(req DeviceRegistrationRequest) (Device, err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := s.load(); err != nil {
+		return Device{}, err
+	}
 	if _, ok := s.state.Sessions[req.SessionToken]; !ok || s.state.Account == nil {
 		return Device{}, ErrInvalidSession
 	}
@@ -124,6 +133,9 @@ func (s *DynamoStore) Pull(req SyncPullRequest) (PullResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := s.load(); err != nil {
+		return PullResponse{}, err
+	}
 	if _, ok := s.state.Sessions[req.SessionToken]; !ok {
 		return PullResponse{}, ErrInvalidSession
 	}
@@ -171,6 +183,9 @@ func (s *DynamoStore) Push(req SyncPushRequest) (PullResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := s.load(); err != nil {
+		return PullResponse{}, err
+	}
 	if _, ok := s.state.Sessions[req.SessionToken]; !ok {
 		return PullResponse{}, ErrInvalidSession
 	}
@@ -222,6 +237,9 @@ func (s *DynamoStore) RestoreTrash(req RestoreTrashRequest) (SyncChange, error) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := s.load(); err != nil {
+		return SyncChange{}, err
+	}
 	if _, ok := s.state.Sessions[req.SessionToken]; !ok {
 		return SyncChange{}, ErrInvalidSession
 	}
