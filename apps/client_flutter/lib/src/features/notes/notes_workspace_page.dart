@@ -916,9 +916,10 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   }
 
   String _currentDeviceName() {
+    final hostName = Platform.localHostname.trim();
     return switch (Platform.operatingSystem) {
-      'windows' => 'Windows Desktop',
-      'macos' => 'Mac Desktop',
+      'windows' => hostName.isEmpty ? 'Windows Desktop' : 'Windows $hostName',
+      'macos' => hostName.isEmpty ? 'Mac Desktop' : 'Mac $hostName',
       'ios' => 'iPhone or iPad',
       'android' => 'Android Device',
       _ => 'Mnemosyne Device',
