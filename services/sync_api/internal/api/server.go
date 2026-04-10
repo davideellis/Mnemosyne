@@ -3,7 +3,11 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"net/http"
+	"sync/atomic"
+	"time"
 
 	"github.com/davideellis/Mnemosyne/services/sync_api/internal/sync"
 )
@@ -26,6 +30,8 @@ type Server struct {
 	store Store
 }
 
+var requestCounter uint64
+
 func NewServer(store Store) *Server {
 	return &Server{store: store}
 }
@@ -44,7 +50,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/sync/pull", s.handlePull)
 	mux.HandleFunc("POST /v1/sync/push", s.handlePush)
 	mux.HandleFunc("POST /v1/trash/restore", s.handleRestoreTrash)
-	return withJSON(mux)
+	return withRequestLogging(withPanicRecovery(withJSON(mux)))
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -259,6 +265,60 @@ func withJSON(next http.Handler) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		next.ServeHTTP(w, r)
 	})
+}
+
+func withRequestLogging(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestID := nextRequestID()
+		startedAt := time.Now()
+		w.Header().Set("X-Mnemosyne-Request-Id", requestID)
+
+		recorder := &statusRecorder{
+			ResponseWriter: w,
+			statusCode:     http.StatusOK,
+		}
+		next.ServeHTTP(recorder, r)
+
+		log.Printf(
+			"request_id=%s method=%s path=%s status=%d duration_ms=%d remote_addr=%q",
+			requestID,
+			r.Method,
+			r.URL.Path,
+			recorder.statusCode,
+			time.Since(startedAt).Milliseconds(),
+			r.RemoteAddr,
+		)
+	})
+}
+
+func withPanicRecovery(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				log.Printf("panic while handling %s %s: %v", r.Method, r.URL.Path, recovered)
+				writeJSON(w, http.StatusInternalServerError, sync.APIError{
+					Message: "internal server error",
+				})
+			}
+		}()
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func nextRequestID() string {
+	value := atomic.AddUint64(&requestCounter, 1)
+	return fmt.Sprintf("req-%d-%d", time.Now().UTC().UnixMilli(), value)
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (r *statusRecorder) WriteHeader(statusCode int) {
+	r.statusCode = statusCode
+	r.ResponseWriter.WriteHeader(statusCode)
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

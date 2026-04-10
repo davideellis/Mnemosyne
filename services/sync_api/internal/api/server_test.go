@@ -34,6 +34,9 @@ func TestBootstrapAndLogin(t *testing.T) {
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("expected status %d, got %d", http.StatusCreated, recorder.Code)
 	}
+	if recorder.Header().Get("X-Mnemosyne-Request-Id") == "" {
+		t.Fatal("expected request id header on bootstrap response")
+	}
 
 	loginBody := sync.LoginRequest{
 		Email:            "user@example.com",
@@ -51,6 +54,21 @@ func TestBootstrapAndLogin(t *testing.T) {
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+}
+
+func TestHealthIncludesRequestIDHeader(t *testing.T) {
+	server := NewServer(sync.NewMemoryStore())
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	server.Routes().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	if recorder.Header().Get("X-Mnemosyne-Request-Id") == "" {
+		t.Fatal("expected request id header on health response")
 	}
 }
 
