@@ -16,7 +16,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	handler := api.NewServer(store)
+	buildInfo := runtime.ReadBuildInfo()
+	handler := api.NewServer(
+		store,
+		api.WithBuildInfo(api.BuildInfo{
+			BuildSHA: buildInfo.BuildSHA,
+			AWSMode:  buildInfo.AWSMode,
+		}),
+	)
 
 	srv := &http.Server{
 		Addr:              addr,

@@ -14,8 +14,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	buildInfo := runtime.ReadBuildInfo()
 
-	server := api.NewServer(store)
+	server := api.NewServer(
+		store,
+		api.WithBuildInfo(api.BuildInfo{
+			BuildSHA: buildInfo.BuildSHA,
+			AWSMode:  buildInfo.AWSMode,
+		}),
+	)
 	adapter := httpadapter.NewV2(server.Routes())
 	lambda.Start(adapter.ProxyWithContext)
 }

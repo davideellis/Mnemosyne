@@ -41,6 +41,7 @@ aws cloudformation deploy `
     ServiceName=mnemosyne-tst `
     BootstrapEmail=$BootstrapEmail `
     EnableHostedBootstrap=false `
+    BuildSha=$gitSha `
     LambdaArtifactBucket=$artifactBucket `
     LambdaArtifactKey=$artifactKey `
   --profile $Profile `

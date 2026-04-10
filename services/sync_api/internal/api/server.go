@@ -27,13 +27,29 @@ type Store interface {
 }
 
 type Server struct {
-	store Store
+	store     Store
+	buildInfo BuildInfo
+}
+
+type BuildInfo struct {
+	BuildSHA string `json:"buildSha,omitempty"`
+	AWSMode  string `json:"awsMode,omitempty"`
 }
 
 var requestCounter uint64
 
-func NewServer(store Store) *Server {
-	return &Server{store: store}
+func NewServer(store Store, options ...func(*Server)) *Server {
+	server := &Server{store: store}
+	for _, option := range options {
+		option(server)
+	}
+	return server
+}
+
+func WithBuildInfo(buildInfo BuildInfo) func(*Server) {
+	return func(server *Server) {
+		server.buildInfo = buildInfo
+	}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -143,7 +159,11 @@ func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":   "ok",
+		"buildSha": s.buildInfo.BuildSHA,
+		"awsMode":  s.buildInfo.AWSMode,
+	})
 }
 
 func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {

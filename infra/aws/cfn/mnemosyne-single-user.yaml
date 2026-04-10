@@ -20,6 +20,10 @@ Parameters:
   LambdaArtifactKey:
     Type: String
     Description: S3 key for the packaged sync API Lambda artifact zip.
+  BuildSha:
+    Type: String
+    Default: dev
+    Description: Source revision identifier for the deployed sync API build.
 
 Conditions:
   HostedBootstrapEnabled: !Equals [!Ref EnableHostedBootstrap, "true"]
@@ -106,6 +110,7 @@ Resources:
           MNEMOSYNE_BOOTSTRAP_EMAIL: !Ref BootstrapEmail
           MNEMOSYNE_ENABLE_HOSTED_BOOTSTRAP: !Ref EnableHostedBootstrap
           MNEMOSYNE_AWS_MODE: lambda
+          MNEMOSYNE_BUILD_SHA: !Ref BuildSha
       Code:
         S3Bucket: !Ref LambdaArtifactBucket
         S3Key: !Ref LambdaArtifactKey

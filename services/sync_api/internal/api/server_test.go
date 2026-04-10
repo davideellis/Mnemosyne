@@ -58,7 +58,13 @@ func TestBootstrapAndLogin(t *testing.T) {
 }
 
 func TestHealthIncludesRequestIDHeader(t *testing.T) {
-	server := NewServer(sync.NewMemoryStore())
+	server := NewServer(
+		sync.NewMemoryStore(),
+		WithBuildInfo(BuildInfo{
+			BuildSHA: "abc123",
+			AWSMode:  "lambda",
+		}),
+	)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/healthz", nil)
@@ -69,6 +75,17 @@ func TestHealthIncludesRequestIDHeader(t *testing.T) {
 	}
 	if recorder.Header().Get("X-Mnemosyne-Request-Id") == "" {
 		t.Fatal("expected request id header on health response")
+	}
+
+	var body map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal health response: %v", err)
+	}
+	if body["buildSha"] != "abc123" {
+		t.Fatalf("expected build sha in health response, got %q", body["buildSha"])
+	}
+	if body["awsMode"] != "lambda" {
+		t.Fatalf("expected aws mode in health response, got %q", body["awsMode"])
 	}
 }
 
