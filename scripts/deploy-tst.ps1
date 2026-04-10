@@ -62,4 +62,13 @@ $outputs.GetEnumerator() | Sort-Object Name | ForEach-Object {
 if ($outputs.ContainsKey("ApiBaseUrl")) {
   $health = Invoke-RestMethod -Uri ($outputs["ApiBaseUrl"].TrimEnd("/") + "/healthz") -Method Get
   Write-Host "Health check: $($health.status)"
+  if ($health.buildSha) {
+    Write-Host "Deployed build SHA: $($health.buildSha)"
+    if ($health.buildSha -ne $gitSha) {
+      throw "Deployed build SHA $($health.buildSha) did not match expected $gitSha"
+    }
+  }
+  if ($health.awsMode) {
+    Write-Host "Runtime mode: $($health.awsMode)"
+  }
 }
