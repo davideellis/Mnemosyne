@@ -123,6 +123,12 @@ Future<void> main(List<String> args) async {
                   platform: Platform.operatingSystem,
                 );
 
+  if (session.sessionExpiresAt != null) {
+    stdout.writeln(
+      'Session expires at: ${session.sessionExpiresAt!.toUtc().toIso8601String()}',
+    );
+  }
+
   final objectId = 'smoke-${DateTime.now().toUtc().millisecondsSinceEpoch}';
   final relativePath = 'Smoke/$objectId.md';
   final markdown =

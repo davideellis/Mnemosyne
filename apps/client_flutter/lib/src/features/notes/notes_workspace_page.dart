@@ -1653,6 +1653,8 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                             lastSyncSuccess: _formatTimestamp(
                                                 _lastSyncSuccessAt),
                                             lastSyncError: _lastSyncError,
+                                            sessionExpiresAt:
+                                                _session?.sessionExpiresAt,
                                             devices: _registeredDevices,
                                             currentDeviceName:
                                                 _currentDeviceName(),

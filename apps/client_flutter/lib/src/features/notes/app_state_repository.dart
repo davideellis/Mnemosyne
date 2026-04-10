@@ -46,6 +46,8 @@ class PersistedAppState {
               'accountId': sessionValue.accountId,
               'sessionToken': sessionValue.sessionToken,
               'email': sessionValue.email,
+              'sessionExpiresAt':
+                  sessionValue.sessionExpiresAt?.toUtc().toIso8601String(),
               'encryptedMasterKeyForPassword':
                   sessionValue.encryptedMasterKeyForPassword,
               'encryptedMasterKeyForRecovery':
@@ -76,7 +78,8 @@ class PersistedAppState {
               (key, value) => MapEntry(key, value as String),
             ),
       settings: WorkspaceSettings.fromJson(
-        (json['settings'] as Map<String, dynamic>?) ?? const <String, dynamic>{},
+        (json['settings'] as Map<String, dynamic>?) ??
+            const <String, dynamic>{},
       ),
       syncCursor: json['syncCursor'] as String?,
       vaultRootPath: json['vaultRootPath'] as String?,
@@ -86,6 +89,11 @@ class PersistedAppState {
               accountId: sessionJson['accountId'] as String,
               sessionToken: sessionJson['sessionToken'] as String,
               email: sessionJson['email'] as String,
+              sessionExpiresAt: sessionJson['sessionExpiresAt'] == null
+                  ? null
+                  : DateTime.tryParse(
+                      sessionJson['sessionExpiresAt'] as String,
+                    ),
               encryptedMasterKeyForPassword:
                   sessionJson['encryptedMasterKeyForPassword'] as String? ?? '',
               encryptedMasterKeyForRecovery:

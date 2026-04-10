@@ -43,6 +43,9 @@ Request:
 
 Returns a session token plus the wrapped master-key material needed for the client to recover the vault key locally.
 
+- Sessions expire after 30 days.
+- The server prunes expired sessions automatically.
+
 Request:
 
 ```json
@@ -60,6 +63,9 @@ Request:
 ### `POST /v1/auth/recover`
 
 Returns a session token plus the wrapped master-key material needed for the client to recover the vault key with the recovery key.
+
+- Recovery also registers or refreshes the requesting device.
+- Sessions expire after 30 days.
 
 Request:
 
@@ -144,6 +150,7 @@ Bootstrap and login responses return:
 {
   "accountId": "acct_local",
   "sessionToken": "opaque-session-token",
+  "sessionExpiresAt": "2026-05-08T15:30:00Z",
   "encryptedMasterKeyForPassword": "base64",
   "encryptedMasterKeyForRecovery": "base64",
   "wrappedMasterKeyForApproval": "base64",
@@ -154,6 +161,7 @@ Bootstrap and login responses return:
 The server stores wrapped key material, but it must not have enough information to decrypt note contents on its own.
 
 Bootstrap requests also store verifier material for password-based auth and recovery-key-based auth. Recovery auth validates the recovery verifier and returns the wrapped recovery-key envelope without exposing plaintext note data.
+Approval tickets expire after 10 minutes and are pruned automatically.
 
 ## Conflict Handling
 

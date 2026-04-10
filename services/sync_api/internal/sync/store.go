@@ -17,6 +17,8 @@ var (
 	ErrInvalidApproval    = errors.New("invalid approval")
 )
 
+const sessionTTL = 30 * 24 * time.Hour
+
 type accountRecord struct {
 	AccountID                     string
 	Email                         string
@@ -32,6 +34,7 @@ type MemoryStore struct {
 	mu               stdsync.Mutex
 	account          *accountRecord
 	sessions         map[string]string
+	sessionIssuedAt  map[string]string
 	changes          []SyncChange
 	latestChanges    map[string]SyncChange
 	pendingApprovals map[string]DeviceApproval
@@ -49,6 +52,7 @@ func restoreChangeID(count int) string {
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		sessions:         map[string]string{},
+		sessionIssuedAt:  map[string]string{},
 		latestChanges:    map[string]SyncChange{},
 		pendingApprovals: map[string]DeviceApproval{},
 		trashObjectIDs:   map[string]bool{},
@@ -95,10 +99,99 @@ func sortedDevices(devicesByID map[string]Device) []Device {
 	return devices
 }
 
-func authSessionForAccount(sessionToken string, account *accountRecord) AuthSession {
+func sessionExpiryForIssuedAt(issuedAt string) string {
+	if issuedAt == "" {
+		return ""
+	}
+	parsed := parseLogicalTimestamp(issuedAt)
+	if parsed.IsZero() {
+		return ""
+	}
+	return parsed.Add(sessionTTL).Format(time.RFC3339)
+}
+
+func isSessionExpired(issuedAt string, now time.Time) bool {
+	if issuedAt == "" {
+		return false
+	}
+	parsed := parseLogicalTimestamp(issuedAt)
+	if parsed.IsZero() {
+		return true
+	}
+	return !parsed.Add(sessionTTL).After(now)
+}
+
+func putSession(
+	sessions map[string]string,
+	sessionIssuedAt map[string]string,
+	sessionToken string,
+	accountID string,
+	issuedAt string,
+) {
+	sessions[sessionToken] = accountID
+	sessionIssuedAt[sessionToken] = issuedAt
+}
+
+func removeSession(
+	sessions map[string]string,
+	sessionIssuedAt map[string]string,
+	sessionToken string,
+) {
+	delete(sessions, sessionToken)
+	delete(sessionIssuedAt, sessionToken)
+}
+
+func validateSession(
+	sessions map[string]string,
+	sessionIssuedAt map[string]string,
+	sessionToken string,
+	now time.Time,
+) (string, bool) {
+	accountID, ok := sessions[sessionToken]
+	if !ok {
+		return "", false
+	}
+	if isSessionExpired(sessionIssuedAt[sessionToken], now) {
+		removeSession(sessions, sessionIssuedAt, sessionToken)
+		return "", false
+	}
+	return accountID, true
+}
+
+func pruneExpiredSessions(
+	sessions map[string]string,
+	sessionIssuedAt map[string]string,
+	now time.Time,
+) bool {
+	dirty := false
+	for sessionToken := range sessions {
+		if isSessionExpired(sessionIssuedAt[sessionToken], now) {
+			removeSession(sessions, sessionIssuedAt, sessionToken)
+			dirty = true
+		}
+	}
+	return dirty
+}
+
+func pruneExpiredApprovals(
+	pendingApprovals map[string]DeviceApproval,
+	now time.Time,
+) bool {
+	dirty := false
+	for verifier, approval := range pendingApprovals {
+		if parseLogicalTimestamp(approval.ExpiresAt).Before(now) {
+			delete(pendingApprovals, verifier)
+			dirty = true
+		}
+	}
+	return dirty
+}
+
+func authSessionForAccount(sessionToken string, account *accountRecord, issuedAt string) AuthSession {
 	return AuthSession{
 		SessionToken:                  sessionToken,
 		AccountID:                     account.AccountID,
+		SessionExpiresAt:              sessionExpiryForIssuedAt(issuedAt),
 		EncryptedMasterKeyForPassword: account.EncryptedMasterKeyForPassword,
 		EncryptedMasterKeyForRecovery: account.EncryptedMasterKeyForRecovery,
 		RecoveryKeyHint:               account.RecoveryKeyHint,
@@ -108,9 +201,10 @@ func authSessionForAccount(sessionToken string, account *accountRecord) AuthSess
 func authSessionForApproval(
 	sessionToken string,
 	account *accountRecord,
+	issuedAt string,
 	wrappedKeyBlob string,
 ) AuthSession {
-	session := authSessionForAccount(sessionToken, account)
+	session := authSessionForAccount(sessionToken, account, issuedAt)
 	session.WrappedMasterKeyForApproval = wrappedKeyBlob
 	return session
 }
@@ -119,13 +213,18 @@ func (s *MemoryStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	now := time.Now().UTC()
+	pruneExpiredSessions(s.sessions, s.sessionIssuedAt, now)
+	pruneExpiredApprovals(s.pendingApprovals, now)
+
 	if s.account != nil {
 		return AuthSession{}, ErrAccountExists
 	}
 
 	accountID := "acct_local"
 	sessionToken := "session_bootstrap"
-	device := touchDevice(req.Device, currentTimestamp())
+	issuedAt := now.Format(time.RFC3339)
+	device := touchDevice(req.Device, issuedAt)
 	s.account = &accountRecord{
 		AccountID:                     accountID,
 		Email:                         req.Email,
@@ -136,14 +235,18 @@ func (s *MemoryStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error
 		RecoveryKeyHint:               req.RecoveryKeyHint,
 		Devices:                       map[string]Device{device.DeviceID: device},
 	}
-	s.sessions[sessionToken] = accountID
+	putSession(s.sessions, s.sessionIssuedAt, sessionToken, accountID, issuedAt)
 
-	return authSessionForAccount(sessionToken, s.account), nil
+	return authSessionForAccount(sessionToken, s.account, issuedAt), nil
 }
 
 func (s *MemoryStore) Recover(req RecoveryRequest) (AuthSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	pruneExpiredSessions(s.sessions, s.sessionIssuedAt, now)
+	pruneExpiredApprovals(s.pendingApprovals, now)
 
 	if s.account == nil ||
 		s.account.Email != req.Email ||
@@ -152,41 +255,61 @@ func (s *MemoryStore) Recover(req RecoveryRequest) (AuthSession, error) {
 	}
 
 	sessionToken := sessionTokenForCount(len(s.sessions) + 1)
-	s.sessions[sessionToken] = s.account.AccountID
+	issuedAt := now.Format(time.RFC3339)
+	putSession(
+		s.sessions,
+		s.sessionIssuedAt,
+		sessionToken,
+		s.account.AccountID,
+		issuedAt,
+	)
 	if req.Device.DeviceID != "" {
-		device := touchDevice(req.Device, currentTimestamp())
+		device := touchDevice(req.Device, issuedAt)
 		s.account.Devices[device.DeviceID] = device
 	}
 
-	return authSessionForAccount(sessionToken, s.account), nil
+	return authSessionForAccount(sessionToken, s.account, issuedAt), nil
 }
 
 func (s *MemoryStore) Login(req LoginRequest) (AuthSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	now := time.Now().UTC()
+	pruneExpiredSessions(s.sessions, s.sessionIssuedAt, now)
+	pruneExpiredApprovals(s.pendingApprovals, now)
+
 	if s.account == nil || s.account.Email != req.Email || s.account.PasswordVerifier != req.PasswordVerifier {
 		return AuthSession{}, ErrInvalidCredentials
 	}
 
 	sessionToken := sessionTokenForCount(len(s.sessions) + 1)
-	s.sessions[sessionToken] = s.account.AccountID
+	issuedAt := now.Format(time.RFC3339)
+	putSession(
+		s.sessions,
+		s.sessionIssuedAt,
+		sessionToken,
+		s.account.AccountID,
+		issuedAt,
+	)
 	if req.Device.DeviceID != "" {
-		device := touchDevice(req.Device, currentTimestamp())
+		device := touchDevice(req.Device, issuedAt)
 		s.account.Devices[device.DeviceID] = device
 	}
 
-	return authSessionForAccount(sessionToken, s.account), nil
+	return authSessionForAccount(sessionToken, s.account, issuedAt), nil
 }
 
 func (s *MemoryStore) Logout(req LogoutRequest) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.sessions[req.SessionToken]; !ok {
+	now := time.Now().UTC()
+	pruneExpiredApprovals(s.pendingApprovals, now)
+	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, req.SessionToken, now); !ok {
 		return ErrInvalidSession
 	}
-	delete(s.sessions, req.SessionToken)
+	removeSession(s.sessions, s.sessionIssuedAt, req.SessionToken)
 	return nil
 }
 
@@ -194,10 +317,12 @@ func (s *MemoryStore) RegisterDevice(req DeviceRegistrationRequest) (Device, err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.sessions[req.SessionToken]; !ok || s.account == nil {
+	now := time.Now().UTC()
+	pruneExpiredApprovals(s.pendingApprovals, now)
+	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, req.SessionToken, now); !ok || s.account == nil {
 		return Device{}, ErrInvalidSession
 	}
-	device := touchDevice(req.Device, currentTimestamp())
+	device := touchDevice(req.Device, now.Format(time.RFC3339))
 	s.account.Devices[device.DeviceID] = device
 	return device, nil
 }
@@ -206,7 +331,9 @@ func (s *MemoryStore) ListDevices(req DeviceListRequest) ([]Device, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.sessions[req.SessionToken]; !ok || s.account == nil {
+	now := time.Now().UTC()
+	pruneExpiredApprovals(s.pendingApprovals, now)
+	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, req.SessionToken, now); !ok || s.account == nil {
 		return nil, ErrInvalidSession
 	}
 
@@ -219,7 +346,9 @@ func (s *MemoryStore) StartDeviceApproval(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	accountID, ok := s.sessions[req.SessionToken]
+	now := time.Now().UTC()
+	pruneExpiredApprovals(s.pendingApprovals, now)
+	accountID, ok := validateSession(s.sessions, s.sessionIssuedAt, req.SessionToken, now)
 	if !ok || s.account == nil || s.account.AccountID != accountID {
 		return DeviceApproval{}, ErrInvalidSession
 	}
@@ -229,7 +358,7 @@ func (s *MemoryStore) StartDeviceApproval(
 		Email:            s.account.Email,
 		ApprovalVerifier: req.ApprovalVerifier,
 		WrappedKeyBlob:   req.WrappedKeyBlob,
-		ExpiresAt:        time.Now().UTC().Add(10 * time.Minute).Format(time.RFC3339),
+		ExpiresAt:        now.Add(10 * time.Minute).Format(time.RFC3339),
 	}
 	s.pendingApprovals[req.ApprovalVerifier] = approval
 	return approval, nil
@@ -241,6 +370,10 @@ func (s *MemoryStore) ConsumeDeviceApproval(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	now := time.Now().UTC()
+	pruneExpiredSessions(s.sessions, s.sessionIssuedAt, now)
+	pruneExpiredApprovals(s.pendingApprovals, now)
+
 	if s.account == nil || s.account.Email != req.Email {
 		return AuthSession{}, ErrInvalidApproval
 	}
@@ -249,24 +382,38 @@ func (s *MemoryStore) ConsumeDeviceApproval(
 	if !ok || approval.Email != req.Email || approval.WrappedKeyBlob == "" {
 		return AuthSession{}, ErrInvalidApproval
 	}
-	if parseLogicalTimestamp(approval.ExpiresAt).Before(time.Now().UTC()) {
+	if parseLogicalTimestamp(approval.ExpiresAt).Before(now) {
 		delete(s.pendingApprovals, req.ApprovalVerifier)
 		return AuthSession{}, ErrInvalidApproval
 	}
 
-	device := touchDevice(req.Device, currentTimestamp())
+	issuedAt := now.Format(time.RFC3339)
+	device := touchDevice(req.Device, issuedAt)
 	s.account.Devices[device.DeviceID] = device
 	sessionToken := sessionTokenForCount(len(s.sessions) + 1)
-	s.sessions[sessionToken] = s.account.AccountID
+	putSession(
+		s.sessions,
+		s.sessionIssuedAt,
+		sessionToken,
+		s.account.AccountID,
+		issuedAt,
+	)
 	delete(s.pendingApprovals, req.ApprovalVerifier)
-	return authSessionForApproval(sessionToken, s.account, approval.WrappedKeyBlob), nil
+	return authSessionForApproval(
+		sessionToken,
+		s.account,
+		issuedAt,
+		approval.WrappedKeyBlob,
+	), nil
 }
 
 func (s *MemoryStore) Pull(req SyncPullRequest) (PullResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.sessions[req.SessionToken]; !ok {
+	now := time.Now().UTC()
+	pruneExpiredApprovals(s.pendingApprovals, now)
+	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, req.SessionToken, now); !ok {
 		return PullResponse{}, ErrInvalidSession
 	}
 
@@ -298,11 +445,13 @@ func (s *MemoryStore) Push(req SyncPushRequest) (PullResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.sessions[req.SessionToken]; !ok {
+	now := time.Now().UTC()
+	pruneExpiredApprovals(s.pendingApprovals, now)
+	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, req.SessionToken, now); !ok {
 		return PullResponse{}, ErrInvalidSession
 	}
 
-	seenAt := currentTimestamp()
+	seenAt := now.Format(time.RFC3339)
 	for _, change := range req.Changes {
 		if change.ChangeID == "" || change.ObjectID == "" {
 			return PullResponse{}, ErrChangeRejected
@@ -336,7 +485,9 @@ func (s *MemoryStore) RestoreTrash(req RestoreTrashRequest) (SyncChange, error) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.sessions[req.SessionToken]; !ok {
+	now := time.Now().UTC()
+	pruneExpiredApprovals(s.pendingApprovals, now)
+	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, req.SessionToken, now); !ok {
 		return SyncChange{}, ErrInvalidSession
 	}
 	if !s.trashObjectIDs[req.ObjectID] {

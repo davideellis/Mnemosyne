@@ -253,3 +253,33 @@ func TestMemoryStoreTracksDeviceLastSeenDuringSync(t *testing.T) {
 		t.Fatalf("expected last seen timestamp to advance, got %q then %q", initialLastSeenAt, devices[0].LastSeenAt)
 	}
 }
+
+func TestMemoryStoreRejectsExpiredSessions(t *testing.T) {
+	store := NewMemoryStore()
+
+	session, err := store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	store.sessionIssuedAt[session.SessionToken] = "2026-01-01T00:00:00Z"
+
+	_, err = store.Pull(SyncPullRequest{SessionToken: session.SessionToken})
+	if err == nil {
+		t.Fatal("expected expired session to be rejected")
+	}
+	if _, ok := store.sessions[session.SessionToken]; ok {
+		t.Fatal("expected expired session to be pruned")
+	}
+}

@@ -18,6 +18,7 @@ void main() {
           jsonEncode(<String, dynamic>{
             'accountId': 'acct_local',
             'sessionToken': 'session_bootstrap',
+            'sessionExpiresAt': '2026-05-09T19:30:00Z',
           }),
           201,
           headers: const <String, String>{'content-type': 'application/json'},
@@ -38,6 +39,7 @@ void main() {
     expect(session.accountId, 'acct_local');
     expect(session.sessionToken, 'session_bootstrap');
     expect(session.email, 'demo@mnemosyne.local');
+    expect(session.sessionExpiresAt, DateTime.parse('2026-05-09T19:30:00Z'));
     expect(session.masterKeyMaterial, isNotEmpty);
     expect(session.encryptedMasterKeyForPassword, isNotEmpty);
     expect(session.wrappedMasterKeyForApproval, isEmpty);
@@ -65,6 +67,7 @@ void main() {
           jsonEncode(<String, dynamic>{
             'accountId': 'acct_local',
             'sessionToken': 'session_login',
+            'sessionExpiresAt': '2026-05-09T19:30:00Z',
             'encryptedMasterKeyForPassword':
                 bootstrapMaterial.encryptedMasterKeyForPassword,
             'encryptedMasterKeyForRecovery':
@@ -86,6 +89,7 @@ void main() {
     );
 
     expect(session.sessionToken, 'session_login');
+    expect(session.sessionExpiresAt, DateTime.parse('2026-05-09T19:30:00Z'));
     expect(session.masterKeyMaterial, bootstrapMaterial.masterKeyMaterial);
   });
 
@@ -109,6 +113,7 @@ void main() {
         accountId: 'acct_local',
         sessionToken: 'session_login',
         email: 'demo@mnemosyne.local',
+        sessionExpiresAt: null,
         encryptedMasterKeyForPassword: '',
         encryptedMasterKeyForRecovery: '',
         wrappedMasterKeyForApproval: '',
@@ -140,6 +145,7 @@ void main() {
           jsonEncode(<String, dynamic>{
             'accountId': 'acct_local',
             'sessionToken': 'session_recovery',
+            'sessionExpiresAt': '2026-05-09T19:30:00Z',
             'encryptedMasterKeyForPassword':
                 bootstrapMaterial.encryptedMasterKeyForPassword,
             'encryptedMasterKeyForRecovery':
@@ -162,6 +168,7 @@ void main() {
     );
 
     expect(session.sessionToken, 'session_recovery');
+    expect(session.sessionExpiresAt, DateTime.parse('2026-05-09T19:30:00Z'));
     expect(session.masterKeyMaterial, bootstrapMaterial.masterKeyMaterial);
   });
 
@@ -192,6 +199,7 @@ void main() {
           jsonEncode(<String, dynamic>{
             'accountId': 'acct_local',
             'sessionToken': 'session_approval',
+            'sessionExpiresAt': '2026-05-09T19:30:00Z',
             'wrappedMasterKeyForApproval': startPayload['wrappedKeyBlob'],
             'encryptedMasterKeyForPassword':
                 bootstrapMaterial.encryptedMasterKeyForPassword,
@@ -210,6 +218,7 @@ void main() {
       accountId: 'acct_local',
       sessionToken: 'session_bootstrap',
       email: 'demo@mnemosyne.local',
+      sessionExpiresAt: null,
       encryptedMasterKeyForPassword:
           bootstrapMaterial.encryptedMasterKeyForPassword,
       encryptedMasterKeyForRecovery:
@@ -274,6 +283,7 @@ void main() {
         accountId: 'acct_local',
         sessionToken: 'session_bootstrap',
         email: 'demo@mnemosyne.local',
+        sessionExpiresAt: null,
         encryptedMasterKeyForPassword: '',
         encryptedMasterKeyForRecovery: '',
         wrappedMasterKeyForApproval: '',
@@ -348,6 +358,7 @@ void main() {
         accountId: 'acct_local',
         sessionToken: 'session_bootstrap',
         email: 'demo@mnemosyne.local',
+        sessionExpiresAt: null,
         encryptedMasterKeyForPassword:
             bootstrapMaterial.encryptedMasterKeyForPassword,
         encryptedMasterKeyForRecovery:
@@ -443,6 +454,7 @@ void main() {
         accountId: 'acct_local',
         sessionToken: 'session_bootstrap',
         email: 'demo@mnemosyne.local',
+        sessionExpiresAt: null,
         encryptedMasterKeyForPassword:
             bootstrapMaterial.encryptedMasterKeyForPassword,
         encryptedMasterKeyForRecovery:

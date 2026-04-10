@@ -378,3 +378,47 @@ func TestFileStorePersistsDeviceLastSeen(t *testing.T) {
 		t.Fatal("expected device last-seen timestamp to persist after reload")
 	}
 }
+
+func TestFileStoreRejectsExpiredSessionsAcrossReload(t *testing.T) {
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "state.json")
+
+	store, err := NewFileStore(filePath)
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	session, err := store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	store.state.SessionIssuedAt[session.SessionToken] = "2026-01-01T00:00:00Z"
+	if err := store.save(); err != nil {
+		t.Fatalf("save expired session state: %v", err)
+	}
+
+	reloadedStore, err := NewFileStore(filePath)
+	if err != nil {
+		t.Fatalf("reload file store: %v", err)
+	}
+
+	_, err = reloadedStore.Pull(SyncPullRequest{SessionToken: session.SessionToken})
+	if err == nil {
+		t.Fatal("expected expired session to be rejected after reload")
+	}
+	if _, ok := reloadedStore.state.Sessions[session.SessionToken]; ok {
+		t.Fatal("expected expired session to be pruned after reload")
+	}
+}

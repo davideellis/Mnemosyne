@@ -3,6 +3,7 @@ class SyncSession {
     required this.accountId,
     required this.sessionToken,
     required this.email,
+    required this.sessionExpiresAt,
     required this.encryptedMasterKeyForPassword,
     required this.encryptedMasterKeyForRecovery,
     required this.wrappedMasterKeyForApproval,
@@ -13,6 +14,7 @@ class SyncSession {
   final String accountId;
   final String sessionToken;
   final String email;
+  final DateTime? sessionExpiresAt;
   final String encryptedMasterKeyForPassword;
   final String encryptedMasterKeyForRecovery;
   final String wrappedMasterKeyForApproval;
@@ -23,6 +25,7 @@ class SyncSession {
     String? accountId,
     String? sessionToken,
     String? email,
+    DateTime? sessionExpiresAt,
     String? encryptedMasterKeyForPassword,
     String? encryptedMasterKeyForRecovery,
     String? wrappedMasterKeyForApproval,
@@ -33,6 +36,7 @@ class SyncSession {
       accountId: accountId ?? this.accountId,
       sessionToken: sessionToken ?? this.sessionToken,
       email: email ?? this.email,
+      sessionExpiresAt: sessionExpiresAt ?? this.sessionExpiresAt,
       encryptedMasterKeyForPassword:
           encryptedMasterKeyForPassword ?? this.encryptedMasterKeyForPassword,
       encryptedMasterKeyForRecovery:

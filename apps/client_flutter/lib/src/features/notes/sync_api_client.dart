@@ -67,6 +67,9 @@ class SyncApiClient {
       accountId: body['accountId'] as String,
       sessionToken: body['sessionToken'] as String,
       email: email,
+      sessionExpiresAt: body['sessionExpiresAt'] == null
+          ? null
+          : DateTime.tryParse(body['sessionExpiresAt'] as String),
       encryptedMasterKeyForPassword:
           body['encryptedMasterKeyForPassword'] as String? ??
               bootstrapMaterial.encryptedMasterKeyForPassword,
@@ -115,6 +118,9 @@ class SyncApiClient {
       accountId: body['accountId'] as String,
       sessionToken: body['sessionToken'] as String,
       email: email,
+      sessionExpiresAt: body['sessionExpiresAt'] == null
+          ? null
+          : DateTime.tryParse(body['sessionExpiresAt'] as String),
       encryptedMasterKeyForPassword: encryptedMasterKeyForPassword,
       encryptedMasterKeyForRecovery:
           body['encryptedMasterKeyForRecovery'] as String? ?? '',
@@ -454,6 +460,9 @@ class SyncApiClient {
       accountId: body['accountId'] as String,
       sessionToken: body['sessionToken'] as String,
       email: email,
+      sessionExpiresAt: body['sessionExpiresAt'] == null
+          ? null
+          : DateTime.tryParse(body['sessionExpiresAt'] as String),
       encryptedMasterKeyForPassword:
           body['encryptedMasterKeyForPassword'] as String? ?? '',
       encryptedMasterKeyForRecovery:

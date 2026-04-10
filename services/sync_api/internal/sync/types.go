@@ -96,6 +96,7 @@ type RestoreTrashRequest struct {
 type AuthSession struct {
 	SessionToken                  string `json:"sessionToken"`
 	AccountID                     string `json:"accountId"`
+	SessionExpiresAt              string `json:"sessionExpiresAt,omitempty"`
 	EncryptedMasterKeyForPassword string `json:"encryptedMasterKeyForPassword,omitempty"`
 	EncryptedMasterKeyForRecovery string `json:"encryptedMasterKeyForRecovery,omitempty"`
 	WrappedMasterKeyForApproval   string `json:"wrappedMasterKeyForApproval,omitempty"`

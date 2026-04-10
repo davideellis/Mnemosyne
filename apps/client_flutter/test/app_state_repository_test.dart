@@ -8,7 +8,7 @@ import 'package:mnemosyne/src/features/settings/workspace_settings.dart';
 
 void main() {
   test('persisted app state serializes session and vault data', () {
-    const state = PersistedAppState(
+    final state = PersistedAppState(
       apiBaseUrl: 'http://127.0.0.1:8080',
       email: 'demo@mnemosyne.local',
       knownNoteDigests: <String, String>{'Journal/welcome.md': 'digest-1'},
@@ -27,6 +27,7 @@ void main() {
         accountId: 'acct_local',
         sessionToken: 'session_bootstrap',
         email: 'demo@mnemosyne.local',
+        sessionExpiresAt: DateTime.utc(2026, 5, 10, 12),
         encryptedMasterKeyForPassword: 'enc-pw',
         encryptedMasterKeyForRecovery: 'enc-rec',
         wrappedMasterKeyForApproval: 'enc-approval',
@@ -51,6 +52,7 @@ void main() {
     expect(restored.syncCursor, state.syncCursor);
     expect(restored.vaultRootPath, state.vaultRootPath);
     expect(restored.session?.sessionToken, state.session?.sessionToken);
+    expect(restored.session?.sessionExpiresAt, state.session?.sessionExpiresAt);
     expect(restored.session?.wrappedMasterKeyForApproval, 'enc-approval');
     expect(restored.session?.masterKeyMaterial, isEmpty);
   });
