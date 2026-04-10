@@ -465,6 +465,11 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       });
       return;
     }
+    if (await _ensureActiveSession(
+      'Your sync session expired on this device. Sign in again to approve devices.',
+    )) {
+      return;
+    }
 
     final approvalCode = _generateApprovalCode();
     setState(() {
@@ -625,6 +630,24 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     await _persistState();
   }
 
+  bool _isSessionExpired(SyncSession? session) {
+    final expiresAt = session?.sessionExpiresAt;
+    if (expiresAt == null) {
+      return false;
+    }
+    return !expiresAt.isAfter(DateTime.now().toUtc());
+  }
+
+  Future<bool> _ensureActiveSession(String message) async {
+    final session = _session;
+    if (!_isSessionExpired(session)) {
+      return false;
+    }
+
+    await _handleUnauthorizedSession(message);
+    return true;
+  }
+
   Future<void> _authenticate({required bool bootstrap}) async {
     setState(() {
       _isAuthenticating = true;
@@ -708,6 +731,11 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         _syncMessage = 'Sign in before syncing.';
         _statusLabel = 'Sync unavailable';
       });
+      return;
+    }
+    if (await _ensureActiveSession(
+      'Your sync session expired on this device. Sign in again to continue syncing.',
+    )) {
       return;
     }
 
@@ -1077,6 +1105,11 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     if (session == null) {
       return;
     }
+    if (await _ensureActiveSession(
+      'Your sync session expired on this device. Sign in again to load devices.',
+    )) {
+      return;
+    }
 
     try {
       final devices = await _syncApiClient.listDevices(
@@ -1129,6 +1162,9 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   }
 
   String _syncStateSummary() {
+    if (_isSessionExpired(_session)) {
+      return 'Session expired';
+    }
     if (_isSyncing) {
       return 'Syncing now';
     }
