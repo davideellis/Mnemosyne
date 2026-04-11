@@ -134,11 +134,12 @@ Current test deployment workflow on this machine:
 - Use `.\scripts\restore-tst-backup.ps1 -BackupPath <path>` to preview a restore plan for a prior backup export
 - Use `.\scripts\check-tst-health.ps1` from the repo root for a combined `/healthz` + alarm-state view of the deployed test stack
 - Use `.\scripts\show-tst-logs.ps1` from the repo root to inspect recent Lambda logs and request IDs
+- Use `.\scripts\run-tst-smoke.ps1 -Email <email> -Password <password>` from the repo root for a broader encrypted live smoke pass against `Mnemosyne-tst`
 - Use `.\scripts\build-client-artifacts.ps1` to build Windows and Android artifacts, then `.\scripts\package-release-artifacts.ps1` to collect them into a versioned release bundle
 - The script is intentionally hard-scoped to AWS account `163649805194`
 - It builds the Lambda artifact, uploads it under a fresh S3 key, deploys `Mnemosyne-tst`, and runs a `/healthz` smoke check
 - Use `flutter pub run tool/smoke_sync_api.dart --base-url <api> --email <email> --password <password>` from `apps/client_flutter` for an encrypted login/push/pull smoke test
-- The smoke runner also supports `--device-name`, `--device-platform`, `--list-devices`, `--start-approval`, `--consume-approval`, and `--revoke-device --target-device-id <id>`
+- The smoke runner also supports `--full`, `--trash-restore`, `--approval-roundtrip`, `--device-name`, `--device-platform`, `--list-devices`, `--start-approval`, `--consume-approval`, and `--revoke-device --target-device-id <id>`
 - Do not point this script at production; keep production changes manual until the test path is stable
 
 Document at least:

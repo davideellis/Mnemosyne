@@ -16,6 +16,9 @@ Future<void> main(List<String> args) async {
   final consumeApproval = options.containsKey('consume-approval');
   final listDevices = options.containsKey('list-devices');
   final revokeDevice = options.containsKey('revoke-device');
+  final trashRestore = options.containsKey('trash-restore');
+  final approvalRoundtrip = options.containsKey('approval-roundtrip');
+  final full = options.containsKey('full');
   final logout = options.containsKey('logout');
   final approvalCode = options['approval-code'] ?? 'ABCD-EFGH-IJKL';
   final deviceName = options['device-name'] ?? 'Smoke Runner';
@@ -156,6 +159,45 @@ Future<void> main(List<String> args) async {
     );
   }
 
+  if (full) {
+    await _runFullSmoke(
+      client: client,
+      baseUri: baseUri,
+      session: session,
+      email: email,
+      password: password,
+      approvalCode: approvalCode,
+      deviceName: deviceName,
+      devicePlatform: devicePlatform,
+    );
+    return;
+  }
+
+  if (approvalRoundtrip) {
+    await _runApprovalRoundtrip(
+      client: client,
+      baseUri: baseUri,
+      session: session,
+      email: email,
+      password: password,
+      approvalCode: approvalCode,
+      deviceName: deviceName,
+      devicePlatform: devicePlatform,
+    );
+    return;
+  }
+
+  if (trashRestore) {
+    await _runTrashRestoreSmoke(
+      client: client,
+      baseUri: baseUri,
+      session: session,
+      deviceName: deviceName,
+      devicePlatform: devicePlatform,
+    );
+    return;
+  }
+
   final objectId = 'smoke-${DateTime.now().toUtc().millisecondsSinceEpoch}';
   final relativePath = 'Smoke/$objectId.md';
   final markdown =
@@ -270,4 +312,332 @@ Map<String, String> _parseArgs(List<String> args) {
     index += 1;
   }
   return options;
+}
+
+Future<void> _runFullSmoke({
+  required SyncApiClient client,
+  required Uri baseUri,
+  required SyncSession session,
+  required String email,
+  required String password,
+  required String approvalCode,
+  required String deviceName,
+  required String devicePlatform,
+}) async {
+  stdout.writeln('Running full smoke flow...');
+
+  await _runNoteSmoke(
+    client: client,
+    baseUri: baseUri,
+    session: session,
+    deviceName: deviceName,
+    devicePlatform: devicePlatform,
+  );
+  if (exitCode != 0) {
+    return;
+  }
+  await _runSettingsSmoke(
+    client: client,
+    baseUri: baseUri,
+    session: session,
+    deviceName: deviceName,
+    devicePlatform: devicePlatform,
+  );
+  if (exitCode != 0) {
+    return;
+  }
+  await _runTrashRestoreSmoke(
+    client: client,
+    baseUri: baseUri,
+    session: session,
+    deviceName: deviceName,
+    devicePlatform: devicePlatform,
+  );
+  if (exitCode != 0) {
+    return;
+  }
+  await _runApprovalRoundtrip(
+    client: client,
+    baseUri: baseUri,
+    session: session,
+    email: email,
+    password: password,
+    approvalCode: approvalCode,
+    deviceName: deviceName,
+    devicePlatform: devicePlatform,
+  );
+  if (exitCode != 0) {
+    return;
+  }
+
+  stdout.writeln('Full smoke flow passed.');
+}
+
+Future<void> _runNoteSmoke({
+  required SyncApiClient client,
+  required Uri baseUri,
+  required SyncSession session,
+  required String deviceName,
+  required String devicePlatform,
+}) async {
+  final objectId = 'smoke-${DateTime.now().toUtc().millisecondsSinceEpoch}';
+  final relativePath = 'Smoke/$objectId.md';
+  final markdown =
+      '# Smoke Test\n\nSynced at ${DateTime.now().toUtc().toIso8601String()}\n';
+
+  final pushResult = await client.syncVault(
+    baseUri: baseUri,
+    session: session,
+    changes: <SyncPushChange>[
+      SyncPushChange(
+        objectId: objectId,
+        kind: 'note',
+        operation: 'upsert',
+        relativePath: relativePath,
+        title: 'Smoke Test',
+        markdown: markdown,
+        tags: const <String>['smoke'],
+        wikilinks: const <String>[],
+      ),
+    ],
+    cursor: '',
+    deviceName: deviceName,
+    platform: devicePlatform,
+  );
+
+  final pullResult = await client.pullVault(
+    baseUri: baseUri,
+    session: session,
+    cursor: '',
+  );
+
+  final matchingChanges = pullResult.pulledChanges
+      .where((change) => change.objectId == objectId)
+      .toList(growable: false);
+  if (matchingChanges.length != 1 || matchingChanges.first.markdown != markdown) {
+    stderr.writeln(
+      'Note smoke test failed. Expected one round-tripped note for $objectId.',
+    );
+    stderr.writeln('Push cursor: ${pushResult.cursor}');
+    stderr.writeln('Pull cursor: ${pullResult.cursor}');
+    stderr.writeln('Matches: ${matchingChanges.length}');
+    exitCode = 1;
+    return;
+  }
+
+  stdout.writeln('Note sync passed for $objectId.');
+}
+
+Future<void> _runSettingsSmoke({
+  required SyncApiClient client,
+  required Uri baseUri,
+  required SyncSession session,
+  required String deviceName,
+  required String devicePlatform,
+}) async {
+  final themeMode = 'dark';
+  final graphDepth = 3;
+  final settingsPayload = <String, dynamic>{
+    'themeMode': themeMode,
+    'autoSyncEnabled': false,
+    'backlinksEnabled': false,
+    'graphDepth': graphDepth,
+  };
+
+  final pushResult = await client.syncVault(
+    baseUri: baseUri,
+    session: session,
+    changes: <SyncPushChange>[
+      SyncPushChange(
+        objectId: 'workspace-settings',
+        kind: 'settings',
+        operation: 'upsert',
+        settings: settingsPayload,
+      ),
+    ],
+    cursor: '',
+    deviceName: deviceName,
+    platform: devicePlatform,
+  );
+  final pullResult = await client.pullVault(
+    baseUri: baseUri,
+    session: session,
+    cursor: '',
+  );
+
+  final matchingChanges = pullResult.pulledChanges
+      .where((change) => change.objectId == 'workspace-settings')
+      .toList(growable: false);
+  if (matchingChanges.isEmpty ||
+      matchingChanges.last.settings['themeMode'] != themeMode ||
+      matchingChanges.last.settings['graphDepth'] != graphDepth ||
+      matchingChanges.last.settings['autoSyncEnabled'] != false) {
+    stderr.writeln(
+      'Settings smoke test failed. Expected a round-tripped workspace settings change.',
+    );
+    stderr.writeln('Push cursor: ${pushResult.cursor}');
+    stderr.writeln('Pull cursor: ${pullResult.cursor}');
+    stderr.writeln('Matches: ${matchingChanges.length}');
+    exitCode = 1;
+    return;
+  }
+
+  stdout.writeln('Settings sync passed.');
+}
+
+Future<void> _runTrashRestoreSmoke({
+  required SyncApiClient client,
+  required Uri baseUri,
+  required SyncSession session,
+  required String deviceName,
+  required String devicePlatform,
+}) async {
+  final objectId = 'trash-${DateTime.now().toUtc().millisecondsSinceEpoch}';
+  final relativePath = 'Smoke/$objectId.md';
+
+  await client.syncVault(
+    baseUri: baseUri,
+    session: session,
+    changes: <SyncPushChange>[
+      SyncPushChange(
+        objectId: objectId,
+        kind: 'note',
+        operation: 'upsert',
+        relativePath: relativePath,
+        title: 'Trash Restore',
+        markdown: '# Trash Restore',
+      ),
+    ],
+    cursor: '',
+    deviceName: deviceName,
+    platform: devicePlatform,
+  );
+
+  await client.syncVault(
+    baseUri: baseUri,
+    session: session,
+    changes: <SyncPushChange>[
+      SyncPushChange(
+        objectId: objectId,
+        kind: 'note',
+        operation: 'trash',
+        relativePath: relativePath,
+        title: 'Trash Restore',
+        markdown: '# Trash Restore',
+      ),
+    ],
+    cursor: '',
+    deviceName: deviceName,
+    platform: devicePlatform,
+  );
+
+  final restored = await client.restoreTrash(
+    baseUri: baseUri,
+    session: session,
+    objectId: objectId,
+  );
+  if (restored.operation != 'restore' || restored.objectId != objectId) {
+    stderr.writeln('Trash restore smoke test failed for $objectId.');
+    exitCode = 1;
+    return;
+  }
+
+  stdout.writeln('Trash restore passed for $objectId.');
+}
+
+Future<void> _runApprovalRoundtrip({
+  required SyncApiClient client,
+  required Uri baseUri,
+  required SyncSession session,
+  required String email,
+  required String password,
+  required String approvalCode,
+  required String deviceName,
+  required String devicePlatform,
+}) async {
+  final approvalDeviceName = '$deviceName Approval';
+  final approvalPlatform = '${devicePlatform}_approval';
+
+  final expiresAt = await client.startDeviceApproval(
+    baseUri: baseUri,
+    session: session,
+    approvalCode: approvalCode,
+  );
+  if (expiresAt.isEmpty) {
+    stderr.writeln('Approval smoke test failed: missing expiry.');
+    exitCode = 1;
+    return;
+  }
+
+  final approvedSession = await client.consumeDeviceApproval(
+    baseUri: baseUri,
+    email: email,
+    approvalCode: approvalCode,
+    deviceName: approvalDeviceName,
+    platform: approvalPlatform,
+  );
+  if (approvedSession.masterKeyMaterial.isEmpty) {
+    stderr.writeln('Approval smoke test failed: approved device has no key.');
+    exitCode = 1;
+    return;
+  }
+
+  final devices = await client.listDevices(baseUri: baseUri, session: session);
+  final approvedDevice = devices.where((device) {
+    return device.deviceName == approvalDeviceName &&
+        device.platform == approvalPlatform;
+  }).toList(growable: false);
+  if (approvedDevice.isEmpty) {
+    stderr.writeln('Approval smoke test failed: approved device not listed.');
+    exitCode = 1;
+    return;
+  }
+
+  await client.revokeDevice(
+    baseUri: baseUri,
+    session: session,
+    deviceId: approvedDevice.single.deviceId,
+  );
+
+  try {
+    await client.pullVault(
+      baseUri: baseUri,
+      session: approvedSession,
+      cursor: '',
+    );
+    stderr.writeln('Approval smoke test failed: revoked session still worked.');
+    exitCode = 1;
+    return;
+  } on SyncApiException catch (error) {
+    if (error.statusCode != 401) {
+      stderr.writeln(
+        'Approval smoke test failed: expected 401 after revoke, got ${error.statusCode}.',
+      );
+      exitCode = 1;
+      return;
+    }
+  }
+
+  final refreshed = await client.login(
+    baseUri: baseUri,
+    email: email,
+    password: password,
+    deviceName: deviceName,
+    platform: devicePlatform,
+  );
+  final refreshedDevices =
+      await client.listDevices(baseUri: baseUri, session: refreshed);
+  final stillPresent = refreshedDevices.any((device) {
+    return device.deviceName == approvalDeviceName &&
+        device.platform == approvalPlatform;
+  });
+  if (stillPresent) {
+    stderr.writeln(
+      'Approval smoke test failed: revoked device still listed after refresh.',
+    );
+    exitCode = 1;
+    return;
+  }
+
+  stdout.writeln('Approval + revoke passed.');
 }

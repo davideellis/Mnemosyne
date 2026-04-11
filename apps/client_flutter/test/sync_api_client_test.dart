@@ -186,6 +186,69 @@ void main() {
     );
   });
 
+  test('restoreTrash returns the decrypted restore change', () async {
+    final cryptoService = SyncCryptoService();
+    final bootstrapMaterial = await cryptoService.createBootstrapMaterial(
+      email: 'demo@mnemosyne.local',
+      password: 'password',
+      recoveryKey: 'AAAA-BBBB-CCCC-DDDD',
+    );
+    final encryptedRestoreChange = await cryptoService.encryptNote(
+      masterKeyMaterial: bootstrapMaterial.masterKeyMaterial,
+      metadata: <String, dynamic>{
+        'title': 'Welcome Back',
+        'relativePath': 'Journal/welcome-back.md',
+        'tags': <String>['journal'],
+        'wikilinks': <String>['Inbox'],
+      },
+      markdown: '# Welcome Back',
+    );
+
+    final client = SyncApiClient(
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/v1/trash/restore');
+        final payload = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(payload['sessionToken'], 'session_login');
+        expect(payload['objectId'], 'note-restore');
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'changeId': 'restore-1',
+            'objectId': 'note-restore',
+            'kind': 'note',
+            'operation': 'restore',
+            'encryptedMetadata': encryptedRestoreChange.encryptedMetadata,
+            'encryptedPayload': encryptedRestoreChange.encryptedPayload,
+          }),
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      }),
+      cryptoService: cryptoService,
+    );
+
+    final restored = await client.restoreTrash(
+      baseUri: Uri.parse('http://127.0.0.1:8080'),
+      session: SyncSession(
+        accountId: 'acct_local',
+        sessionToken: 'session_login',
+        email: 'demo@mnemosyne.local',
+        sessionExpiresAt: null,
+        encryptedMasterKeyForPassword:
+            bootstrapMaterial.encryptedMasterKeyForPassword,
+        encryptedMasterKeyForRecovery:
+            bootstrapMaterial.encryptedMasterKeyForRecovery,
+        wrappedMasterKeyForApproval: '',
+        masterKeyMaterial: bootstrapMaterial.masterKeyMaterial,
+        recoveryKeyHint: 'saved-locally',
+      ),
+      objectId: 'note-restore',
+    );
+
+    expect(restored.operation, 'restore');
+    expect(restored.relativePath, 'Journal/welcome-back.md');
+    expect(restored.markdown, '# Welcome Back');
+  });
+
   test('recover unwraps a persisted master key from the recovery response',
       () async {
     final cryptoService = SyncCryptoService();

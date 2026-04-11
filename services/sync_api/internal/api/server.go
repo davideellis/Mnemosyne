@@ -77,6 +77,10 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if err := validateLogoutRequest(req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	if err := s.store.Logout(req); err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, sync.ErrInvalidSession) {
@@ -91,6 +95,10 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 	var req sync.DeviceListRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := validateDeviceListRequest(req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -109,6 +117,10 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRevokeDevice(w http.ResponseWriter, r *http.Request) {
 	var req sync.DeviceRevokeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := validateDeviceRevokeRequest(req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -132,6 +144,10 @@ func (s *Server) handleStartDeviceApproval(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if err := validateDeviceApprovalStartRequest(req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	approval, err := s.store.StartDeviceApproval(req)
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -150,6 +166,10 @@ func (s *Server) handleConsumeDeviceApproval(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if err := validateDeviceApprovalConsumeRequest(req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	session, err := s.store.ConsumeDeviceApproval(req)
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -165,6 +185,10 @@ func (s *Server) handleConsumeDeviceApproval(w http.ResponseWriter, r *http.Requ
 func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
 	var req sync.RecoveryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := validateRecoveryRequest(req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -194,6 +218,10 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if err := validateBootstrapRequest(req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	session, err := s.store.Bootstrap(req)
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -209,6 +237,10 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req sync.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := validateLoginRequest(req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -230,6 +262,10 @@ func (s *Server) handleRegisterDevice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if err := validateDeviceRegistrationRequest(req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	device, err := s.store.RegisterDevice(req)
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -245,6 +281,10 @@ func (s *Server) handleRegisterDevice(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePull(w http.ResponseWriter, r *http.Request) {
 	var req sync.SyncPullRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := validateSyncPullRequest(req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -266,6 +306,10 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if err := validateSyncPushRequest(req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	response, err := s.store.Push(req)
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -284,6 +328,10 @@ func (s *Server) handlePush(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRestoreTrash(w http.ResponseWriter, r *http.Request) {
 	var req sync.RestoreTrashRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := validateRestoreTrashRequest(req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -370,4 +418,134 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, sync.APIError{Message: err.Error()})
+}
+
+func validateBootstrapRequest(req sync.AccountBootstrapRequest) error {
+	if req.Email == "" {
+		return fmt.Errorf("email is required")
+	}
+	if req.PasswordVerifier == "" {
+		return fmt.Errorf("passwordVerifier is required")
+	}
+	if req.RecoveryVerifier == "" {
+		return fmt.Errorf("recoveryVerifier is required")
+	}
+	if req.EncryptedMasterKeyForPassword == "" {
+		return fmt.Errorf("encryptedMasterKeyForPassword is required")
+	}
+	if req.EncryptedMasterKeyForRecovery == "" {
+		return fmt.Errorf("encryptedMasterKeyForRecovery is required")
+	}
+	return validateDevice(req.Device)
+}
+
+func validateLoginRequest(req sync.LoginRequest) error {
+	if req.Email == "" {
+		return fmt.Errorf("email is required")
+	}
+	if req.PasswordVerifier == "" {
+		return fmt.Errorf("passwordVerifier is required")
+	}
+	return validateDevice(req.Device)
+}
+
+func validateLogoutRequest(req sync.LogoutRequest) error {
+	if req.SessionToken == "" {
+		return fmt.Errorf("sessionToken is required")
+	}
+	return nil
+}
+
+func validateRecoveryRequest(req sync.RecoveryRequest) error {
+	if req.Email == "" {
+		return fmt.Errorf("email is required")
+	}
+	if req.RecoveryVerifier == "" {
+		return fmt.Errorf("recoveryVerifier is required")
+	}
+	return validateDevice(req.Device)
+}
+
+func validateDeviceRegistrationRequest(req sync.DeviceRegistrationRequest) error {
+	if req.SessionToken == "" {
+		return fmt.Errorf("sessionToken is required")
+	}
+	return validateDevice(req.Device)
+}
+
+func validateDeviceApprovalStartRequest(req sync.DeviceApprovalStartRequest) error {
+	if req.SessionToken == "" {
+		return fmt.Errorf("sessionToken is required")
+	}
+	if req.ApprovalVerifier == "" {
+		return fmt.Errorf("approvalVerifier is required")
+	}
+	if req.WrappedKeyBlob == "" {
+		return fmt.Errorf("wrappedKeyBlob is required")
+	}
+	return nil
+}
+
+func validateDeviceApprovalConsumeRequest(req sync.DeviceApprovalConsumeRequest) error {
+	if req.Email == "" {
+		return fmt.Errorf("email is required")
+	}
+	if req.ApprovalVerifier == "" {
+		return fmt.Errorf("approvalVerifier is required")
+	}
+	return validateDevice(req.Device)
+}
+
+func validateDeviceListRequest(req sync.DeviceListRequest) error {
+	if req.SessionToken == "" {
+		return fmt.Errorf("sessionToken is required")
+	}
+	return nil
+}
+
+func validateDeviceRevokeRequest(req sync.DeviceRevokeRequest) error {
+	if req.SessionToken == "" {
+		return fmt.Errorf("sessionToken is required")
+	}
+	if req.DeviceID == "" {
+		return fmt.Errorf("deviceId is required")
+	}
+	return nil
+}
+
+func validateSyncPullRequest(req sync.SyncPullRequest) error {
+	if req.SessionToken == "" {
+		return fmt.Errorf("sessionToken is required")
+	}
+	return nil
+}
+
+func validateSyncPushRequest(req sync.SyncPushRequest) error {
+	if req.SessionToken == "" {
+		return fmt.Errorf("sessionToken is required")
+	}
+	return nil
+}
+
+func validateRestoreTrashRequest(req sync.RestoreTrashRequest) error {
+	if req.SessionToken == "" {
+		return fmt.Errorf("sessionToken is required")
+	}
+	if req.ObjectID == "" {
+		return fmt.Errorf("objectId is required")
+	}
+	return nil
+}
+
+func validateDevice(device sync.Device) error {
+	if device.DeviceID == "" {
+		return fmt.Errorf("device.deviceId is required")
+	}
+	if device.DeviceName == "" {
+		return fmt.Errorf("device.deviceName is required")
+	}
+	if device.Platform == "" {
+		return fmt.Errorf("device.platform is required")
+	}
+	return nil
 }

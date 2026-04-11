@@ -369,6 +369,22 @@ class SyncApiClient {
     );
   }
 
+  Future<RemoteSyncChange> restoreTrash({
+    required Uri baseUri,
+    required SyncSession session,
+    required String objectId,
+  }) async {
+    final response = await _post(
+      baseUri,
+      '/v1/trash/restore',
+      <String, dynamic>{
+        'sessionToken': session.sessionToken,
+        'objectId': objectId,
+      },
+    );
+    return _decodeRemoteNoteChange(session, _decodeJson(response));
+  }
+
   Future<http.Response> _post(
       Uri baseUri, String path, Map<String, dynamic> payload) async {
     final response = await _sendRequest(() {

@@ -335,3 +335,142 @@ func TestMemoryStoreRevokesDeviceSessions(t *testing.T) {
 		t.Fatal("expected revoked device session to be rejected")
 	}
 }
+
+func TestMemoryStoreLoginTracksDevice(t *testing.T) {
+	store := NewMemoryStore()
+
+	_, err := store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	session, err := store.Login(LoginRequest{
+		Email:            "user@example.com",
+		PasswordVerifier: "pw-proof",
+		Device: Device{
+			DeviceID:   "device-2",
+			DeviceName: "Android Phone",
+			Platform:   "android",
+		},
+	})
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	devices, err := store.ListDevices(DeviceListRequest{SessionToken: session.SessionToken})
+	if err != nil {
+		t.Fatalf("list devices: %v", err)
+	}
+	if len(devices) != 2 {
+		t.Fatalf("expected 2 devices after login, got %d", len(devices))
+	}
+}
+
+func TestMemoryStoreRegisterDeviceAddsDevice(t *testing.T) {
+	store := NewMemoryStore()
+
+	session, err := store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	device, err := store.RegisterDevice(DeviceRegistrationRequest{
+		SessionToken: session.SessionToken,
+		Device: Device{
+			DeviceID:   "device-2",
+			DeviceName: "Mac Desktop",
+			Platform:   "macos",
+		},
+	})
+	if err != nil {
+		t.Fatalf("register device: %v", err)
+	}
+	if device.DeviceID != "device-2" {
+		t.Fatalf("expected device-2, got %q", device.DeviceID)
+	}
+
+	devices, err := store.ListDevices(DeviceListRequest{SessionToken: session.SessionToken})
+	if err != nil {
+		t.Fatalf("list devices: %v", err)
+	}
+	if len(devices) != 2 {
+		t.Fatalf("expected 2 devices after registration, got %d", len(devices))
+	}
+}
+
+func TestMemoryStoreRestoreTrashCreatesRestoreChange(t *testing.T) {
+	store := NewMemoryStore()
+
+	session, err := store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	_, err = store.Push(SyncPushRequest{
+		SessionToken: session.SessionToken,
+		Changes: []SyncChange{
+			{
+				ChangeID:         "change-trash-1",
+				ObjectID:         "note-1",
+				Kind:             "note",
+				Operation:        "trash",
+				LogicalTimestamp: "2026-04-08T18:00:00Z",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("push trash change: %v", err)
+	}
+
+	change, err := store.RestoreTrash(RestoreTrashRequest{
+		SessionToken: session.SessionToken,
+		ObjectID:     "note-1",
+	})
+	if err != nil {
+		t.Fatalf("restore trash: %v", err)
+	}
+	if change.Operation != "restore" {
+		t.Fatalf("expected restore operation, got %q", change.Operation)
+	}
+
+	pull, err := store.Pull(SyncPullRequest{SessionToken: session.SessionToken})
+	if err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+	if len(pull.Changes) != 2 {
+		t.Fatalf("expected trash + restore changes, got %d", len(pull.Changes))
+	}
+}
