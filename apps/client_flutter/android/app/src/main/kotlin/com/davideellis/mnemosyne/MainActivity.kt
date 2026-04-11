@@ -1,4 +1,4 @@
-package com.example.mnemosyne
+package com.davideellis.mnemosyne
 
 import io.flutter.embedding.android.FlutterActivity
 
