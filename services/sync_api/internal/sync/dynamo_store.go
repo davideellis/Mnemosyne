@@ -76,7 +76,15 @@ func (s *DynamoStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error
 		Devices:                       map[string]Device{device.DeviceID: device},
 	}
 	issuedAt := currentTimestamp()
-	putSession(s.state.Sessions, s.state.SessionIssuedAt, sessionToken, accountID, issuedAt)
+	putSession(
+		s.state.Sessions,
+		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
+		sessionToken,
+		accountID,
+		issuedAt,
+		req.Device.DeviceID,
+	)
 
 	if err := s.save(); err != nil {
 		return AuthSession{}, err
@@ -103,9 +111,11 @@ func (s *DynamoStore) Recover(req RecoveryRequest) (AuthSession, error) {
 	putSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		sessionToken,
 		s.state.Account.AccountID,
 		issuedAt,
+		req.Device.DeviceID,
 	)
 	if req.Device.DeviceID != "" {
 		device := touchDevice(req.Device, issuedAt)
@@ -137,9 +147,11 @@ func (s *DynamoStore) Login(req LoginRequest) (AuthSession, error) {
 	putSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		sessionToken,
 		s.state.Account.AccountID,
 		issuedAt,
+		req.Device.DeviceID,
 	)
 	if req.Device.DeviceID != "" {
 		device := touchDevice(req.Device, issuedAt)
@@ -163,12 +175,18 @@ func (s *DynamoStore) Logout(req LogoutRequest) error {
 	if _, ok := validateSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		req.SessionToken,
 		time.Now().UTC(),
 	); !ok {
 		return ErrInvalidSession
 	}
-	removeSession(s.state.Sessions, s.state.SessionIssuedAt, req.SessionToken)
+	removeSession(
+		s.state.Sessions,
+		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
+		req.SessionToken,
+	)
 	return s.save()
 }
 
@@ -182,6 +200,7 @@ func (s *DynamoStore) RegisterDevice(req DeviceRegistrationRequest) (Device, err
 	if _, ok := validateSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		req.SessionToken,
 		time.Now().UTC(),
 	); !ok || s.state.Account == nil {
@@ -207,6 +226,7 @@ func (s *DynamoStore) ListDevices(req DeviceListRequest) ([]Device, error) {
 	if _, ok := validateSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		req.SessionToken,
 		time.Now().UTC(),
 	); !ok || s.state.Account == nil {
@@ -214,6 +234,36 @@ func (s *DynamoStore) ListDevices(req DeviceListRequest) ([]Device, error) {
 	}
 
 	return sortedDevices(s.state.Account.Devices), nil
+}
+
+func (s *DynamoStore) RevokeDevice(req DeviceRevokeRequest) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.load(); err != nil {
+		return err
+	}
+	if _, ok := validateSession(
+		s.state.Sessions,
+		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
+		req.SessionToken,
+		time.Now().UTC(),
+	); !ok || s.state.Account == nil {
+		return ErrInvalidSession
+	}
+	if req.DeviceID == "" {
+		return ErrInvalidDevice
+	}
+
+	delete(s.state.Account.Devices, req.DeviceID)
+	revokeDeviceSessions(
+		s.state.Sessions,
+		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
+		req.DeviceID,
+	)
+	return s.save()
 }
 
 func (s *DynamoStore) StartDeviceApproval(
@@ -228,6 +278,7 @@ func (s *DynamoStore) StartDeviceApproval(
 	if _, ok := validateSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		req.SessionToken,
 		time.Now().UTC(),
 	); !ok || s.state.Account == nil {
@@ -279,9 +330,11 @@ func (s *DynamoStore) ConsumeDeviceApproval(
 	putSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		sessionToken,
 		s.state.Account.AccountID,
 		issuedAt,
+		req.Device.DeviceID,
 	)
 	delete(s.state.PendingApprovals, req.ApprovalVerifier)
 
@@ -306,6 +359,7 @@ func (s *DynamoStore) Pull(req SyncPullRequest) (PullResponse, error) {
 	if _, ok := validateSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		req.SessionToken,
 		time.Now().UTC(),
 	); !ok {
@@ -361,6 +415,7 @@ func (s *DynamoStore) Push(req SyncPushRequest) (PullResponse, error) {
 	if _, ok := validateSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		req.SessionToken,
 		time.Now().UTC(),
 	); !ok {
@@ -422,6 +477,7 @@ func (s *DynamoStore) RestoreTrash(req RestoreTrashRequest) (SyncChange, error) 
 	if _, ok := validateSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		req.SessionToken,
 		time.Now().UTC(),
 	); !ok {

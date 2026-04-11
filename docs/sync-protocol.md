@@ -85,6 +85,14 @@ Request:
 
 Registers a new device through recovery-key flow or an approval flow.
 
+### `POST /v1/devices/revoke`
+
+Revokes a previously registered device.
+
+- The client sends a valid session token plus the target device ID.
+- Revoking a device also invalidates any active sessions issued to that device.
+- The current device should not revoke itself through this route; sign-out handles local disconnect separately.
+
 ### `POST /v1/devices/approval/start`
 
 Starts a short-lived one-time approval ticket from an already signed-in device. The client sends:

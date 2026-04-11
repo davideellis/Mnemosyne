@@ -19,6 +19,7 @@ type Store interface {
 	Recover(req sync.RecoveryRequest) (sync.AuthSession, error)
 	RegisterDevice(req sync.DeviceRegistrationRequest) (sync.Device, error)
 	ListDevices(req sync.DeviceListRequest) ([]sync.Device, error)
+	RevokeDevice(req sync.DeviceRevokeRequest) error
 	StartDeviceApproval(req sync.DeviceApprovalStartRequest) (sync.DeviceApproval, error)
 	ConsumeDeviceApproval(req sync.DeviceApprovalConsumeRequest) (sync.AuthSession, error)
 	Pull(req sync.SyncPullRequest) (sync.PullResponse, error)
@@ -61,6 +62,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/auth/recover", s.handleRecover)
 	mux.HandleFunc("POST /v1/devices/register", s.handleRegisterDevice)
 	mux.HandleFunc("POST /v1/devices/list", s.handleListDevices)
+	mux.HandleFunc("POST /v1/devices/revoke", s.handleRevokeDevice)
 	mux.HandleFunc("POST /v1/devices/approval/start", s.handleStartDeviceApproval)
 	mux.HandleFunc("POST /v1/devices/approval/consume", s.handleConsumeDeviceApproval)
 	mux.HandleFunc("POST /v1/sync/pull", s.handlePull)
@@ -102,6 +104,26 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"devices": devices})
+}
+
+func (s *Server) handleRevokeDevice(w http.ResponseWriter, r *http.Request) {
+	var req sync.DeviceRevokeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.store.RevokeDevice(req); err != nil {
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, sync.ErrInvalidSession):
+			status = http.StatusUnauthorized
+		case errors.Is(err, sync.ErrInvalidDevice):
+			status = http.StatusBadRequest
+		}
+		writeError(w, status, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
 func (s *Server) handleStartDeviceApproval(w http.ResponseWriter, r *http.Request) {

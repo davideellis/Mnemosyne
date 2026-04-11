@@ -25,6 +25,7 @@ class SettingsPanel extends StatelessWidget {
     required this.currentDeviceName,
     required this.currentPlatform,
     required this.onSettingsChanged,
+    required this.onRevokeDevice,
     super.key,
   });
 
@@ -45,6 +46,7 @@ class SettingsPanel extends StatelessWidget {
   final String currentDeviceName;
   final String currentPlatform;
   final ValueChanged<WorkspaceSettings> onSettingsChanged;
+  final ValueChanged<RegisteredDevice> onRevokeDevice;
 
   @override
   Widget build(BuildContext context) {
@@ -181,6 +183,14 @@ class SettingsPanel extends StatelessWidget {
                             ? device.platform
                             : '${device.platform} | Active ${_formatDeviceSeenAt(device.lastSeenAt!)}',
                       ),
+                      trailing: device.deviceName == currentDeviceName &&
+                              device.platform == currentPlatform
+                          ? null
+                          : IconButton(
+                              tooltip: 'Revoke device',
+                              onPressed: () => onRevokeDevice(device),
+                              icon: const Icon(Icons.link_off_outlined),
+                            ),
                     ),
                 ],
               ),

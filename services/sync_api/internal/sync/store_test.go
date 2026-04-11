@@ -283,3 +283,55 @@ func TestMemoryStoreRejectsExpiredSessions(t *testing.T) {
 		t.Fatal("expected expired session to be pruned")
 	}
 }
+
+func TestMemoryStoreRevokesDeviceSessions(t *testing.T) {
+	store := NewMemoryStore()
+
+	bootstrapSession, err := store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	recoverySession, err := store.Recover(RecoveryRequest{
+		Email:            "user@example.com",
+		RecoveryVerifier: "rec-proof",
+		Device: Device{
+			DeviceID:   "device-2",
+			DeviceName: "Mac Desktop",
+			Platform:   "macos",
+		},
+	})
+	if err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+
+	if err := store.RevokeDevice(DeviceRevokeRequest{
+		SessionToken: bootstrapSession.SessionToken,
+		DeviceID:     "device-2",
+	}); err != nil {
+		t.Fatalf("revoke device: %v", err)
+	}
+
+	devices, err := store.ListDevices(DeviceListRequest{SessionToken: bootstrapSession.SessionToken})
+	if err != nil {
+		t.Fatalf("list devices after revoke: %v", err)
+	}
+	if len(devices) != 1 || devices[0].DeviceID != "device-1" {
+		t.Fatalf("expected only device-1 to remain, got %+v", devices)
+	}
+
+	if _, err := store.Pull(SyncPullRequest{SessionToken: recoverySession.SessionToken}); err == nil {
+		t.Fatal("expected revoked device session to be rejected")
+	}
+}

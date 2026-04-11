@@ -1160,6 +1160,80 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     }
   }
 
+  Future<void> _revokeDevice(RegisteredDevice device) async {
+    final session = _session;
+    if (session == null) {
+      return;
+    }
+    if (await _ensureActiveSession(
+      'Your sync session expired on this device. Sign in again to manage devices.',
+    )) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Revoke device'),
+            content: Text(
+              'Disconnect ${device.deviceName} from sync? It will need the recovery key or a new approval code to reconnect.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Revoke'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) {
+      return;
+    }
+
+    setState(() {
+      _statusLabel = 'Revoking device';
+      _syncMessage = null;
+    });
+
+    try {
+      await _syncApiClient.revokeDevice(
+        baseUri: _parseBaseUri(),
+        session: session,
+        deviceId: device.deviceId,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _statusLabel = 'Device revoked';
+        _syncMessage = '${device.deviceName} was removed from this account.';
+      });
+      await _refreshRegisteredDevices();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      if (error is SyncApiException && error.statusCode == 401) {
+        await _handleUnauthorizedSession(
+          'Your sync session is no longer valid. Sign in again to manage devices.',
+        );
+        return;
+      }
+      setState(() {
+        _statusLabel = 'Revoke failed';
+        _syncMessage = error.toString();
+      });
+    }
+  }
+
   void _scheduleRetryAfterFailure() {
     if (_session == null || !_settings.autoSyncEnabled) {
       return;
@@ -1745,6 +1819,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                             currentPlatform:
                                                 Platform.operatingSystem,
                                             onSettingsChanged: _updateSettings,
+                                            onRevokeDevice: _revokeDevice,
                                           ),
                                         ),
                                       ],

@@ -354,6 +354,21 @@ class SyncApiClient {
         .toList(growable: false);
   }
 
+  Future<void> revokeDevice({
+    required Uri baseUri,
+    required SyncSession session,
+    required String deviceId,
+  }) async {
+    await _post(
+      baseUri,
+      '/v1/devices/revoke',
+      <String, dynamic>{
+        'sessionToken': session.sessionToken,
+        'deviceId': deviceId,
+      },
+    );
+  }
+
   Future<http.Response> _post(
       Uri baseUri, String path, Map<String, dynamic> payload) async {
     final response = await _sendRequest(() {

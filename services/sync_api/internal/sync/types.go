@@ -66,6 +66,11 @@ type DeviceListRequest struct {
 	SessionToken string `json:"sessionToken"`
 }
 
+type DeviceRevokeRequest struct {
+	SessionToken string `json:"sessionToken"`
+	DeviceID     string `json:"deviceId"`
+}
+
 type SyncChange struct {
 	ChangeID          string `json:"changeId"`
 	ObjectID          string `json:"objectId"`

@@ -205,6 +205,68 @@ func TestListDevices(t *testing.T) {
 	}
 }
 
+func TestRevokeDevice(t *testing.T) {
+	store := sync.NewMemoryStore()
+	server := NewServer(store)
+
+	bootstrapSession, err := store.Bootstrap(sync.AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: sync.Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+
+	recoverySession, err := store.Recover(sync.RecoveryRequest{
+		Email:            "user@example.com",
+		RecoveryVerifier: "rec-proof",
+		Device: sync.Device{
+			DeviceID:   "device-2",
+			DeviceName: "Mac Desktop",
+			Platform:   "macos",
+		},
+	})
+	if err != nil {
+		t.Fatalf("recover failed: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := newJSONRequest(t, http.MethodPost, "/v1/devices/revoke", sync.DeviceRevokeRequest{
+		SessionToken: bootstrapSession.SessionToken,
+		DeviceID:     "device-2",
+	})
+	server.Routes().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = newJSONRequest(t, http.MethodPost, "/v1/devices/list", sync.DeviceListRequest{
+		SessionToken: bootstrapSession.SessionToken,
+	})
+	server.Routes().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = newJSONRequest(t, http.MethodPost, "/v1/sync/pull", sync.SyncPullRequest{
+		SessionToken: recoverySession.SessionToken,
+	})
+	server.Routes().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected revoked session to return %d, got %d", http.StatusUnauthorized, recorder.Code)
+	}
+}
+
 func TestLogout(t *testing.T) {
 	store := sync.NewMemoryStore()
 	server := NewServer(store)

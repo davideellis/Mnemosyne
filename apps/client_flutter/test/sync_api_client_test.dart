@@ -154,6 +154,38 @@ void main() {
     );
   });
 
+  test('revokeDevice posts the target device id', () async {
+    final client = SyncApiClient(
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/v1/devices/revoke');
+        final payload = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(payload['sessionToken'], 'session_login');
+        expect(payload['deviceId'], 'device_other');
+        return http.Response(
+          jsonEncode(<String, dynamic>{'status': 'ok'}),
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    await client.revokeDevice(
+      baseUri: Uri.parse('http://127.0.0.1:8080'),
+      session: const SyncSession(
+        accountId: 'acct_local',
+        sessionToken: 'session_login',
+        email: 'demo@mnemosyne.local',
+        sessionExpiresAt: null,
+        encryptedMasterKeyForPassword: '',
+        encryptedMasterKeyForRecovery: '',
+        wrappedMasterKeyForApproval: '',
+        masterKeyMaterial: '',
+        recoveryKeyHint: '',
+      ),
+      deviceId: 'device_other',
+    );
+  });
+
   test('recover unwraps a persisted master key from the recovery response',
       () async {
     final cryptoService = SyncCryptoService();

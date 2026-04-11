@@ -12,6 +12,7 @@ type fileStoreState struct {
 	Account          *accountRecord            `json:"account"`
 	Sessions         map[string]string         `json:"sessions"`
 	SessionIssuedAt  map[string]string         `json:"sessionIssuedAt"`
+	SessionDeviceIDs map[string]string         `json:"sessionDeviceIds"`
 	Changes          []SyncChange              `json:"changes"`
 	LatestChanges    map[string]SyncChange     `json:"latestChanges"`
 	PendingApprovals map[string]DeviceApproval `json:"pendingApprovals"`
@@ -29,6 +30,7 @@ func newFileStoreState() fileStoreState {
 	return fileStoreState{
 		Sessions:         map[string]string{},
 		SessionIssuedAt:  map[string]string{},
+		SessionDeviceIDs: map[string]string{},
 		LatestChanges:    map[string]SyncChange{},
 		PendingApprovals: map[string]DeviceApproval{},
 		PayloadRefs:      map[string]string{},
@@ -43,6 +45,9 @@ func normalizeFileStoreState(state fileStoreState) fileStoreState {
 	if state.SessionIssuedAt == nil {
 		state.SessionIssuedAt = map[string]string{}
 	}
+	if state.SessionDeviceIDs == nil {
+		state.SessionDeviceIDs = map[string]string{}
+	}
 	if state.LatestChanges == nil {
 		state.LatestChanges = map[string]SyncChange{}
 	}
@@ -55,7 +60,12 @@ func normalizeFileStoreState(state fileStoreState) fileStoreState {
 	if state.TrashObjectIDs == nil {
 		state.TrashObjectIDs = map[string]bool{}
 	}
-	pruneExpiredSessions(state.Sessions, state.SessionIssuedAt, time.Now().UTC())
+	pruneExpiredSessions(
+		state.Sessions,
+		state.SessionIssuedAt,
+		state.SessionDeviceIDs,
+		time.Now().UTC(),
+	)
 	pruneExpiredApprovals(state.PendingApprovals, time.Now().UTC())
 	return state
 }
@@ -94,7 +104,15 @@ func (s *FileStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error) 
 		RecoveryKeyHint:               req.RecoveryKeyHint,
 		Devices:                       map[string]Device{device.DeviceID: device},
 	}
-	putSession(s.state.Sessions, s.state.SessionIssuedAt, sessionToken, accountID, issuedAt)
+	putSession(
+		s.state.Sessions,
+		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
+		sessionToken,
+		accountID,
+		issuedAt,
+		req.Device.DeviceID,
+	)
 
 	if err := s.save(); err != nil {
 		return AuthSession{}, err
@@ -118,9 +136,11 @@ func (s *FileStore) Recover(req RecoveryRequest) (AuthSession, error) {
 	putSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		sessionToken,
 		s.state.Account.AccountID,
 		issuedAt,
+		req.Device.DeviceID,
 	)
 	if req.Device.DeviceID != "" {
 		device := touchDevice(req.Device, issuedAt)
@@ -149,9 +169,11 @@ func (s *FileStore) Login(req LoginRequest) (AuthSession, error) {
 	putSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		sessionToken,
 		s.state.Account.AccountID,
 		issuedAt,
+		req.Device.DeviceID,
 	)
 	if req.Device.DeviceID != "" {
 		device := touchDevice(req.Device, issuedAt)
@@ -172,12 +194,18 @@ func (s *FileStore) Logout(req LogoutRequest) error {
 	if _, ok := validateSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		req.SessionToken,
 		time.Now().UTC(),
 	); !ok {
 		return ErrInvalidSession
 	}
-	removeSession(s.state.Sessions, s.state.SessionIssuedAt, req.SessionToken)
+	removeSession(
+		s.state.Sessions,
+		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
+		req.SessionToken,
+	)
 	return s.save()
 }
 
@@ -188,6 +216,7 @@ func (s *FileStore) RegisterDevice(req DeviceRegistrationRequest) (Device, error
 	if _, ok := validateSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		req.SessionToken,
 		time.Now().UTC(),
 	); !ok || s.state.Account == nil {
@@ -210,6 +239,7 @@ func (s *FileStore) ListDevices(req DeviceListRequest) ([]Device, error) {
 	if _, ok := validateSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		req.SessionToken,
 		time.Now().UTC(),
 	); !ok || s.state.Account == nil {
@@ -217,6 +247,33 @@ func (s *FileStore) ListDevices(req DeviceListRequest) ([]Device, error) {
 	}
 
 	return sortedDevices(s.state.Account.Devices), nil
+}
+
+func (s *FileStore) RevokeDevice(req DeviceRevokeRequest) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := validateSession(
+		s.state.Sessions,
+		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
+		req.SessionToken,
+		time.Now().UTC(),
+	); !ok || s.state.Account == nil {
+		return ErrInvalidSession
+	}
+	if req.DeviceID == "" {
+		return ErrInvalidDevice
+	}
+
+	delete(s.state.Account.Devices, req.DeviceID)
+	revokeDeviceSessions(
+		s.state.Sessions,
+		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
+		req.DeviceID,
+	)
+	return s.save()
 }
 
 func (s *FileStore) StartDeviceApproval(
@@ -228,6 +285,7 @@ func (s *FileStore) StartDeviceApproval(
 	if _, ok := validateSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		req.SessionToken,
 		time.Now().UTC(),
 	); !ok || s.state.Account == nil {
@@ -276,9 +334,11 @@ func (s *FileStore) ConsumeDeviceApproval(
 	putSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		sessionToken,
 		s.state.Account.AccountID,
 		issuedAt,
+		req.Device.DeviceID,
 	)
 	delete(s.state.PendingApprovals, req.ApprovalVerifier)
 
@@ -300,6 +360,7 @@ func (s *FileStore) Pull(req SyncPullRequest) (PullResponse, error) {
 	if _, ok := validateSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		req.SessionToken,
 		time.Now().UTC(),
 	); !ok {
@@ -337,6 +398,7 @@ func (s *FileStore) Push(req SyncPushRequest) (PullResponse, error) {
 	if _, ok := validateSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		req.SessionToken,
 		time.Now().UTC(),
 	); !ok {
@@ -384,6 +446,7 @@ func (s *FileStore) RestoreTrash(req RestoreTrashRequest) (SyncChange, error) {
 	if _, ok := validateSession(
 		s.state.Sessions,
 		s.state.SessionIssuedAt,
+		s.state.SessionDeviceIDs,
 		req.SessionToken,
 		time.Now().UTC(),
 	); !ok {

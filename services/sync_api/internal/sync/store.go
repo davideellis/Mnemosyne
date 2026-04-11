@@ -15,6 +15,7 @@ var (
 	ErrChangeRejected     = errors.New("change rejected")
 	ErrObjectNotInTrash   = errors.New("object not in trash")
 	ErrInvalidApproval    = errors.New("invalid approval")
+	ErrInvalidDevice      = errors.New("invalid device")
 )
 
 const sessionTTL = 30 * 24 * time.Hour
@@ -35,6 +36,7 @@ type MemoryStore struct {
 	account          *accountRecord
 	sessions         map[string]string
 	sessionIssuedAt  map[string]string
+	sessionDeviceIDs map[string]string
 	changes          []SyncChange
 	latestChanges    map[string]SyncChange
 	pendingApprovals map[string]DeviceApproval
@@ -53,6 +55,7 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		sessions:         map[string]string{},
 		sessionIssuedAt:  map[string]string{},
+		sessionDeviceIDs: map[string]string{},
 		latestChanges:    map[string]SyncChange{},
 		pendingApprovals: map[string]DeviceApproval{},
 		trashObjectIDs:   map[string]bool{},
@@ -124,26 +127,32 @@ func isSessionExpired(issuedAt string, now time.Time) bool {
 func putSession(
 	sessions map[string]string,
 	sessionIssuedAt map[string]string,
+	sessionDeviceIDs map[string]string,
 	sessionToken string,
 	accountID string,
 	issuedAt string,
+	deviceID string,
 ) {
 	sessions[sessionToken] = accountID
 	sessionIssuedAt[sessionToken] = issuedAt
+	sessionDeviceIDs[sessionToken] = deviceID
 }
 
 func removeSession(
 	sessions map[string]string,
 	sessionIssuedAt map[string]string,
+	sessionDeviceIDs map[string]string,
 	sessionToken string,
 ) {
 	delete(sessions, sessionToken)
 	delete(sessionIssuedAt, sessionToken)
+	delete(sessionDeviceIDs, sessionToken)
 }
 
 func validateSession(
 	sessions map[string]string,
 	sessionIssuedAt map[string]string,
+	sessionDeviceIDs map[string]string,
 	sessionToken string,
 	now time.Time,
 ) (string, bool) {
@@ -152,7 +161,7 @@ func validateSession(
 		return "", false
 	}
 	if isSessionExpired(sessionIssuedAt[sessionToken], now) {
-		removeSession(sessions, sessionIssuedAt, sessionToken)
+		removeSession(sessions, sessionIssuedAt, sessionDeviceIDs, sessionToken)
 		return "", false
 	}
 	return accountID, true
@@ -161,14 +170,32 @@ func validateSession(
 func pruneExpiredSessions(
 	sessions map[string]string,
 	sessionIssuedAt map[string]string,
+	sessionDeviceIDs map[string]string,
 	now time.Time,
 ) bool {
 	dirty := false
 	for sessionToken := range sessions {
 		if isSessionExpired(sessionIssuedAt[sessionToken], now) {
-			removeSession(sessions, sessionIssuedAt, sessionToken)
+			removeSession(sessions, sessionIssuedAt, sessionDeviceIDs, sessionToken)
 			dirty = true
 		}
+	}
+	return dirty
+}
+
+func revokeDeviceSessions(
+	sessions map[string]string,
+	sessionIssuedAt map[string]string,
+	sessionDeviceIDs map[string]string,
+	deviceID string,
+) bool {
+	dirty := false
+	for sessionToken, candidateDeviceID := range sessionDeviceIDs {
+		if candidateDeviceID != deviceID {
+			continue
+		}
+		removeSession(sessions, sessionIssuedAt, sessionDeviceIDs, sessionToken)
+		dirty = true
 	}
 	return dirty
 }
@@ -214,7 +241,7 @@ func (s *MemoryStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error
 	defer s.mu.Unlock()
 
 	now := time.Now().UTC()
-	pruneExpiredSessions(s.sessions, s.sessionIssuedAt, now)
+	pruneExpiredSessions(s.sessions, s.sessionIssuedAt, s.sessionDeviceIDs, now)
 	pruneExpiredApprovals(s.pendingApprovals, now)
 
 	if s.account != nil {
@@ -235,7 +262,7 @@ func (s *MemoryStore) Bootstrap(req AccountBootstrapRequest) (AuthSession, error
 		RecoveryKeyHint:               req.RecoveryKeyHint,
 		Devices:                       map[string]Device{device.DeviceID: device},
 	}
-	putSession(s.sessions, s.sessionIssuedAt, sessionToken, accountID, issuedAt)
+	putSession(s.sessions, s.sessionIssuedAt, s.sessionDeviceIDs, sessionToken, accountID, issuedAt, req.Device.DeviceID)
 
 	return authSessionForAccount(sessionToken, s.account, issuedAt), nil
 }
@@ -245,7 +272,7 @@ func (s *MemoryStore) Recover(req RecoveryRequest) (AuthSession, error) {
 	defer s.mu.Unlock()
 
 	now := time.Now().UTC()
-	pruneExpiredSessions(s.sessions, s.sessionIssuedAt, now)
+	pruneExpiredSessions(s.sessions, s.sessionIssuedAt, s.sessionDeviceIDs, now)
 	pruneExpiredApprovals(s.pendingApprovals, now)
 
 	if s.account == nil ||
@@ -259,9 +286,11 @@ func (s *MemoryStore) Recover(req RecoveryRequest) (AuthSession, error) {
 	putSession(
 		s.sessions,
 		s.sessionIssuedAt,
+		s.sessionDeviceIDs,
 		sessionToken,
 		s.account.AccountID,
 		issuedAt,
+		req.Device.DeviceID,
 	)
 	if req.Device.DeviceID != "" {
 		device := touchDevice(req.Device, issuedAt)
@@ -276,7 +305,7 @@ func (s *MemoryStore) Login(req LoginRequest) (AuthSession, error) {
 	defer s.mu.Unlock()
 
 	now := time.Now().UTC()
-	pruneExpiredSessions(s.sessions, s.sessionIssuedAt, now)
+	pruneExpiredSessions(s.sessions, s.sessionIssuedAt, s.sessionDeviceIDs, now)
 	pruneExpiredApprovals(s.pendingApprovals, now)
 
 	if s.account == nil || s.account.Email != req.Email || s.account.PasswordVerifier != req.PasswordVerifier {
@@ -288,9 +317,11 @@ func (s *MemoryStore) Login(req LoginRequest) (AuthSession, error) {
 	putSession(
 		s.sessions,
 		s.sessionIssuedAt,
+		s.sessionDeviceIDs,
 		sessionToken,
 		s.account.AccountID,
 		issuedAt,
+		req.Device.DeviceID,
 	)
 	if req.Device.DeviceID != "" {
 		device := touchDevice(req.Device, issuedAt)
@@ -306,10 +337,10 @@ func (s *MemoryStore) Logout(req LogoutRequest) error {
 
 	now := time.Now().UTC()
 	pruneExpiredApprovals(s.pendingApprovals, now)
-	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, req.SessionToken, now); !ok {
+	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, s.sessionDeviceIDs, req.SessionToken, now); !ok {
 		return ErrInvalidSession
 	}
-	removeSession(s.sessions, s.sessionIssuedAt, req.SessionToken)
+	removeSession(s.sessions, s.sessionIssuedAt, s.sessionDeviceIDs, req.SessionToken)
 	return nil
 }
 
@@ -319,7 +350,7 @@ func (s *MemoryStore) RegisterDevice(req DeviceRegistrationRequest) (Device, err
 
 	now := time.Now().UTC()
 	pruneExpiredApprovals(s.pendingApprovals, now)
-	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, req.SessionToken, now); !ok || s.account == nil {
+	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, s.sessionDeviceIDs, req.SessionToken, now); !ok || s.account == nil {
 		return Device{}, ErrInvalidSession
 	}
 	device := touchDevice(req.Device, now.Format(time.RFC3339))
@@ -333,11 +364,28 @@ func (s *MemoryStore) ListDevices(req DeviceListRequest) ([]Device, error) {
 
 	now := time.Now().UTC()
 	pruneExpiredApprovals(s.pendingApprovals, now)
-	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, req.SessionToken, now); !ok || s.account == nil {
+	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, s.sessionDeviceIDs, req.SessionToken, now); !ok || s.account == nil {
 		return nil, ErrInvalidSession
 	}
 
 	return sortedDevices(s.account.Devices), nil
+}
+
+func (s *MemoryStore) RevokeDevice(req DeviceRevokeRequest) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().UTC()
+	pruneExpiredApprovals(s.pendingApprovals, now)
+	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, s.sessionDeviceIDs, req.SessionToken, now); !ok || s.account == nil {
+		return ErrInvalidSession
+	}
+	if req.DeviceID == "" {
+		return ErrInvalidDevice
+	}
+	delete(s.account.Devices, req.DeviceID)
+	revokeDeviceSessions(s.sessions, s.sessionIssuedAt, s.sessionDeviceIDs, req.DeviceID)
+	return nil
 }
 
 func (s *MemoryStore) StartDeviceApproval(
@@ -348,7 +396,7 @@ func (s *MemoryStore) StartDeviceApproval(
 
 	now := time.Now().UTC()
 	pruneExpiredApprovals(s.pendingApprovals, now)
-	accountID, ok := validateSession(s.sessions, s.sessionIssuedAt, req.SessionToken, now)
+	accountID, ok := validateSession(s.sessions, s.sessionIssuedAt, s.sessionDeviceIDs, req.SessionToken, now)
 	if !ok || s.account == nil || s.account.AccountID != accountID {
 		return DeviceApproval{}, ErrInvalidSession
 	}
@@ -371,7 +419,7 @@ func (s *MemoryStore) ConsumeDeviceApproval(
 	defer s.mu.Unlock()
 
 	now := time.Now().UTC()
-	pruneExpiredSessions(s.sessions, s.sessionIssuedAt, now)
+	pruneExpiredSessions(s.sessions, s.sessionIssuedAt, s.sessionDeviceIDs, now)
 	pruneExpiredApprovals(s.pendingApprovals, now)
 
 	if s.account == nil || s.account.Email != req.Email {
@@ -394,9 +442,11 @@ func (s *MemoryStore) ConsumeDeviceApproval(
 	putSession(
 		s.sessions,
 		s.sessionIssuedAt,
+		s.sessionDeviceIDs,
 		sessionToken,
 		s.account.AccountID,
 		issuedAt,
+		req.Device.DeviceID,
 	)
 	delete(s.pendingApprovals, req.ApprovalVerifier)
 	return authSessionForApproval(
@@ -413,7 +463,7 @@ func (s *MemoryStore) Pull(req SyncPullRequest) (PullResponse, error) {
 
 	now := time.Now().UTC()
 	pruneExpiredApprovals(s.pendingApprovals, now)
-	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, req.SessionToken, now); !ok {
+	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, s.sessionDeviceIDs, req.SessionToken, now); !ok {
 		return PullResponse{}, ErrInvalidSession
 	}
 
@@ -447,7 +497,7 @@ func (s *MemoryStore) Push(req SyncPushRequest) (PullResponse, error) {
 
 	now := time.Now().UTC()
 	pruneExpiredApprovals(s.pendingApprovals, now)
-	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, req.SessionToken, now); !ok {
+	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, s.sessionDeviceIDs, req.SessionToken, now); !ok {
 		return PullResponse{}, ErrInvalidSession
 	}
 
@@ -487,7 +537,7 @@ func (s *MemoryStore) RestoreTrash(req RestoreTrashRequest) (SyncChange, error) 
 
 	now := time.Now().UTC()
 	pruneExpiredApprovals(s.pendingApprovals, now)
-	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, req.SessionToken, now); !ok {
+	if _, ok := validateSession(s.sessions, s.sessionIssuedAt, s.sessionDeviceIDs, req.SessionToken, now); !ok {
 		return SyncChange{}, ErrInvalidSession
 	}
 	if !s.trashObjectIDs[req.ObjectID] {
