@@ -15,14 +15,19 @@ Future<void> main(List<String> args) async {
   final startApproval = options.containsKey('start-approval');
   final consumeApproval = options.containsKey('consume-approval');
   final listDevices = options.containsKey('list-devices');
+  final revokeDevice = options.containsKey('revoke-device');
   final logout = options.containsKey('logout');
   final approvalCode = options['approval-code'] ?? 'ABCD-EFGH-IJKL';
+  final deviceName = options['device-name'] ?? 'Smoke Runner';
+  final devicePlatform = options['device-platform'] ?? Platform.operatingSystem;
+  final targetDeviceId = options['target-device-id'];
 
   if (baseUrl == null || email == null || password == null) {
     stderr.writeln(
       'Usage: flutter pub run tool/smoke_sync_api.dart '
       '--base-url <url> --email <email> --password <password> '
-      '[--recovery-key <key>] [--bootstrap]',
+      '[--recovery-key <key>] [--bootstrap] [--device-name <name>] '
+      '[--device-platform <platform>]',
     );
     exitCode = 64;
     return;
@@ -36,8 +41,8 @@ Future<void> main(List<String> args) async {
       baseUri: baseUri,
       email: email,
       password: password,
-      deviceName: 'Smoke Runner',
-      platform: Platform.operatingSystem,
+      deviceName: deviceName,
+      platform: devicePlatform,
     );
     final expiresAt = await client.startDeviceApproval(
       baseUri: baseUri,
@@ -55,8 +60,8 @@ Future<void> main(List<String> args) async {
       baseUri: baseUri,
       email: email,
       password: password,
-      deviceName: 'Smoke Runner',
-      platform: Platform.operatingSystem,
+      deviceName: deviceName,
+      platform: devicePlatform,
     );
     final devices = await client.listDevices(
       baseUri: baseUri,
@@ -73,13 +78,35 @@ Future<void> main(List<String> args) async {
     return;
   }
 
+  if (revokeDevice) {
+    if (targetDeviceId == null || targetDeviceId.isEmpty) {
+      stderr.writeln('--target-device-id is required with --revoke-device');
+      exitCode = 64;
+      return;
+    }
+    final session = await client.login(
+      baseUri: baseUri,
+      email: email,
+      password: password,
+      deviceName: deviceName,
+      platform: devicePlatform,
+    );
+    await client.revokeDevice(
+      baseUri: baseUri,
+      session: session,
+      deviceId: targetDeviceId,
+    );
+    stdout.writeln('Revoked device: $targetDeviceId');
+    return;
+  }
+
   if (logout) {
     final session = await client.login(
       baseUri: baseUri,
       email: email,
       password: password,
-      deviceName: 'Smoke Runner',
-      platform: Platform.operatingSystem,
+      deviceName: deviceName,
+      platform: devicePlatform,
     );
     await client.logout(
       baseUri: baseUri,
@@ -96,31 +123,31 @@ Future<void> main(List<String> args) async {
           password: password,
           recoveryKey: recoveryKey,
           recoveryKeyHint: 'cli-bootstrap',
-          deviceName: 'Smoke Runner',
-          platform: Platform.operatingSystem,
+          deviceName: deviceName,
+          platform: devicePlatform,
         )
       : recover
           ? await client.recover(
               baseUri: baseUri,
               email: email,
               recoveryKey: recoveryKey,
-              deviceName: 'Smoke Runner',
-              platform: Platform.operatingSystem,
+              deviceName: deviceName,
+              platform: devicePlatform,
             )
           : consumeApproval
               ? await client.consumeDeviceApproval(
                   baseUri: baseUri,
                   email: email,
                   approvalCode: approvalCode,
-                  deviceName: 'Smoke Runner',
-                  platform: Platform.operatingSystem,
+                  deviceName: deviceName,
+                  platform: devicePlatform,
                 )
               : await client.login(
                   baseUri: baseUri,
                   email: email,
                   password: password,
-                  deviceName: 'Smoke Runner',
-                  platform: Platform.operatingSystem,
+                  deviceName: deviceName,
+                  platform: devicePlatform,
                 );
 
   if (session.sessionExpiresAt != null) {
@@ -167,16 +194,16 @@ Future<void> main(List<String> args) async {
             ),
           ],
     cursor: '',
-    deviceName: 'Smoke Runner',
-    platform: Platform.operatingSystem,
+    deviceName: deviceName,
+    platform: devicePlatform,
   );
 
   final secondSession = await client.login(
     baseUri: baseUri,
     email: email,
     password: password,
-    deviceName: 'Smoke Runner',
-    platform: Platform.operatingSystem,
+    deviceName: deviceName,
+    platform: devicePlatform,
   );
   final pullResult = await client.pullVault(
     baseUri: baseUri,

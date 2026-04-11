@@ -5,6 +5,25 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+fun Project.stringConfig(name: String, envName: String): String? {
+    return providers.environmentVariable(envName).orNull
+        ?: (findProperty(name) as String?)
+}
+
+val releaseKeystorePath =
+    project.stringConfig("mnemosyne.android.keystorePath", "MNEMOSYNE_ANDROID_KEYSTORE_PATH")
+val releaseKeystorePassword =
+    project.stringConfig("mnemosyne.android.keystorePassword", "MNEMOSYNE_ANDROID_KEYSTORE_PASSWORD")
+val releaseKeyAlias =
+    project.stringConfig("mnemosyne.android.keyAlias", "MNEMOSYNE_ANDROID_KEY_ALIAS")
+val releaseKeyPassword =
+    project.stringConfig("mnemosyne.android.keyPassword", "MNEMOSYNE_ANDROID_KEY_PASSWORD")
+val hasReleaseSigning =
+    !releaseKeystorePath.isNullOrBlank() &&
+        !releaseKeystorePassword.isNullOrBlank() &&
+        !releaseKeyAlias.isNullOrBlank() &&
+        !releaseKeyPassword.isNullOrBlank()
+
 android {
     namespace = "com.davideellis.mnemosyne"
     compileSdk = flutter.compileSdkVersion
@@ -27,11 +46,22 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(
+                if (hasReleaseSigning) "release" else "debug",
+            )
         }
     }
 }
