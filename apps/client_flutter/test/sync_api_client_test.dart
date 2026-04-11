@@ -123,6 +123,37 @@ void main() {
     );
   });
 
+  test('login surfaces request timeout as a sync API exception', () async {
+    final client = SyncApiClient(
+      httpClient: MockClient((request) async {
+        await Future<void>.delayed(const Duration(milliseconds: 25));
+        return http.Response(
+          jsonEncode(<String, dynamic>{'status': 'late'}),
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      }),
+      requestTimeout: const Duration(milliseconds: 5),
+    );
+
+    await expectLater(
+      () => client.login(
+        baseUri: Uri.parse('http://127.0.0.1:8080'),
+        email: 'demo@mnemosyne.local',
+        password: 'password',
+        deviceName: 'Windows Desktop',
+        platform: 'windows',
+      ),
+      throwsA(
+        isA<SyncApiException>().having(
+          (error) => error.message,
+          'message',
+          contains('timed out'),
+        ),
+      ),
+    );
+  });
+
   test('recover unwraps a persisted master key from the recovery response',
       () async {
     final cryptoService = SyncCryptoService();

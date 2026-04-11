@@ -61,6 +61,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   String? _syncMessage;
   DateTime? _lastSyncAttemptAt;
   DateTime? _lastSyncSuccessAt;
+  DateTime? _nextAutoSyncAttemptAt;
   String? _lastSyncError;
   int _autoSyncFailureCount = 0;
   List<RegisteredDevice> _registeredDevices = const <RegisteredDevice>[];
@@ -605,6 +606,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       _lastSyncError = null;
       _lastSyncAttemptAt = null;
       _lastSyncSuccessAt = null;
+      _nextAutoSyncAttemptAt = null;
       _autoSyncFailureCount = 0;
     });
     await _persistState();
@@ -625,6 +627,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       _statusLabel = 'Session expired';
       _syncMessage = message;
       _lastSyncError = message;
+      _nextAutoSyncAttemptAt = null;
       _autoSyncFailureCount = 0;
     });
     await _persistState();
@@ -744,6 +747,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       _statusLabel = 'Syncing';
       _syncMessage = null;
       _lastSyncAttemptAt = DateTime.now();
+      _nextAutoSyncAttemptAt = null;
     });
 
     try {
@@ -781,6 +785,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         _knownSettingsDigest = effectiveSettings.digest();
         _syncCursor = result.cursor;
         _lastSyncSuccessAt = DateTime.now();
+        _nextAutoSyncAttemptAt = null;
         _lastSyncError = null;
         _autoSyncFailureCount = 0;
         _syncMessage =
@@ -800,6 +805,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       }
       setState(() {
         _statusLabel = 'Sync failed';
+        _nextAutoSyncAttemptAt = null;
         _lastSyncError = error.toString();
         _syncMessage = error.toString();
       });
@@ -1081,21 +1087,36 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
 
   void _scheduleAutoSync() {
     if (_session == null || !_settings.autoSyncEnabled) {
+      if (_nextAutoSyncAttemptAt != null) {
+        setState(() {
+          _nextAutoSyncAttemptAt = null;
+        });
+      }
       return;
     }
 
     _autoSyncTimer?.cancel();
+    final queuedAt = DateTime.now().add(const Duration(seconds: 2));
+    setState(() {
+      _nextAutoSyncAttemptAt = queuedAt;
+    });
     _autoSyncTimer = Timer(const Duration(seconds: 2), () {
       if (!mounted || _isSyncing) {
         return;
       }
       final snapshot = _snapshot;
       if (snapshot == null || _buildSyncChanges(snapshot).isEmpty) {
+        if (mounted) {
+          setState(() {
+            _nextAutoSyncAttemptAt = null;
+          });
+        }
         return;
       }
 
       setState(() {
         _statusLabel = 'Queued auto sync';
+        _nextAutoSyncAttemptAt = null;
       });
       unawaited(_syncVault(automatic: true));
     });
@@ -1147,16 +1168,27 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     _autoSyncFailureCount += 1;
     final delaySeconds = min(30, 2 * _autoSyncFailureCount);
     _autoSyncTimer?.cancel();
+    final retryAt = DateTime.now().add(Duration(seconds: delaySeconds));
+    setState(() {
+      _nextAutoSyncAttemptAt = retryAt;
+      _syncMessage = 'Retrying sync at ${_formatTimestamp(retryAt)}.';
+    });
     _autoSyncTimer = Timer(Duration(seconds: delaySeconds), () {
       if (!mounted || _isSyncing) {
         return;
       }
       final snapshot = _snapshot;
       if (snapshot == null || _buildSyncChanges(snapshot).isEmpty) {
+        if (mounted) {
+          setState(() {
+            _nextAutoSyncAttemptAt = null;
+          });
+        }
         return;
       }
       setState(() {
         _statusLabel = 'Retrying sync';
+        _nextAutoSyncAttemptAt = null;
       });
       unawaited(_syncVault(automatic: true));
     });
@@ -1170,7 +1202,9 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       return 'Syncing now';
     }
     if (_lastSyncError != null) {
-      return 'Retrying after failure';
+      return _nextAutoSyncAttemptAt == null
+          ? 'Retrying after failure'
+          : 'Retry scheduled';
     }
     if (_lastSyncSuccessAt != null) {
       return 'Up to date';
@@ -1190,6 +1224,17 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     final minute = local.minute.toString().padLeft(2, '0');
     final suffix = local.hour >= 12 ? 'PM' : 'AM';
     return '${local.month}/${local.day} $hour:$minute $suffix';
+  }
+
+  String _formatNextAutoSyncAttempt() {
+    if (_session == null) {
+      return 'Not scheduled';
+    }
+    final nextAttempt = _nextAutoSyncAttemptAt;
+    if (nextAttempt == null) {
+      return _settings.autoSyncEnabled ? 'No retry queued' : 'Disabled';
+    }
+    return _formatTimestamp(nextAttempt);
   }
 
   void _replaceSnapshot(
@@ -1690,6 +1735,8 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                             lastSyncSuccess: _formatTimestamp(
                                                 _lastSyncSuccessAt),
                                             lastSyncError: _lastSyncError,
+                                            nextAutoSyncAttempt:
+                                                _formatNextAutoSyncAttempt(),
                                             sessionExpiresAt:
                                                 _session?.sessionExpiresAt,
                                             devices: _registeredDevices,

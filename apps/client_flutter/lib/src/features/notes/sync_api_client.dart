@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -22,11 +23,14 @@ class SyncApiClient {
   SyncApiClient({
     http.Client? httpClient,
     SyncCryptoService? cryptoService,
+    Duration? requestTimeout,
   })  : _httpClient = httpClient ?? http.Client(),
-        _cryptoService = cryptoService ?? SyncCryptoService();
+        _cryptoService = cryptoService ?? SyncCryptoService(),
+        _requestTimeout = requestTimeout ?? const Duration(seconds: 15);
 
   final http.Client _httpClient;
   final SyncCryptoService _cryptoService;
+  final Duration _requestTimeout;
 
   Future<SyncSession> bootstrapAccount({
     required Uri baseUri,
@@ -352,13 +356,15 @@ class SyncApiClient {
 
   Future<http.Response> _post(
       Uri baseUri, String path, Map<String, dynamic> payload) async {
-    final response = await _httpClient.post(
-      baseUri.resolve(path),
-      headers: const <String, String>{
-        'content-type': 'application/json',
-      },
-      body: jsonEncode(payload),
-    );
+    final response = await _sendRequest(() {
+      return _httpClient.post(
+        baseUri.resolve(path),
+        headers: const <String, String>{
+          'content-type': 'application/json',
+        },
+        body: jsonEncode(payload),
+      );
+    });
 
     if (response.statusCode >= 400) {
       final body =
@@ -369,6 +375,23 @@ class SyncApiClient {
       );
     }
     return response;
+  }
+
+  Future<http.Response> _sendRequest(
+    Future<http.Response> Function() request,
+  ) async {
+    try {
+      return await request().timeout(_requestTimeout);
+    } on SyncApiException {
+      rethrow;
+    } on Exception catch (error) {
+      throw SyncApiException(
+        statusCode: 0,
+        message: error is TimeoutException
+            ? 'Request timed out after ${_requestTimeout.inSeconds}s.'
+            : 'Request failed: $error',
+      );
+    }
   }
 
   Map<String, dynamic> _decodeJson(http.Response response) {

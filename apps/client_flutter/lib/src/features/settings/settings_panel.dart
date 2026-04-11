@@ -19,6 +19,7 @@ class SettingsPanel extends StatelessWidget {
     required this.lastSyncAttempt,
     required this.lastSyncSuccess,
     required this.lastSyncError,
+    required this.nextAutoSyncAttempt,
     required this.sessionExpiresAt,
     required this.devices,
     required this.currentDeviceName,
@@ -38,6 +39,7 @@ class SettingsPanel extends StatelessWidget {
   final String lastSyncAttempt;
   final String lastSyncSuccess;
   final String? lastSyncError;
+  final String nextAutoSyncAttempt;
   final DateTime? sessionExpiresAt;
   final List<RegisteredDevice> devices;
   final String currentDeviceName;
@@ -106,6 +108,11 @@ class SettingsPanel extends StatelessWidget {
             title: 'Last Success',
             subtitle: lastSyncSuccess,
             icon: Icons.check_circle_outline,
+          ),
+          _SettingTile(
+            title: 'Next Sync Attempt',
+            subtitle: nextAutoSyncAttempt,
+            icon: Icons.update_outlined,
           ),
           _SettingTile(
             title: 'Session Expires',
