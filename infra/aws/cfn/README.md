@@ -23,6 +23,7 @@ Operational defaults now included:
 - S3 bucket versioning enabled for encrypted payload objects
 - S3 lifecycle rule to abort incomplete multipart uploads after 7 days
 - DynamoDB point-in-time recovery enabled for metadata state
+- CloudWatch alarms for Lambda errors and HTTP API 5xx responses
 
 ## Current Status
 
@@ -40,7 +41,7 @@ What is validated today:
 What still needs hardening before production:
 
 1. Expand the current S3-backed payload path beyond the single-state prototype into a fuller object-manifest model
-2. Add alarms and fuller operational runbooks
+2. Add notification wiring and fuller operational runbooks
 3. Add deployment safety for production promotion
 4. Validate recovery and device-provisioning flows end to end
 

@@ -161,6 +161,42 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*"
 
+  SyncApiErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${ServiceName}-sync-api-errors"
+      AlarmDescription: Mnemosyne sync API Lambda errors in the last 5 minutes.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref SyncApiFunction
+
+  HttpApiServerErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${ServiceName}-http-api-5xx"
+      AlarmDescription: Mnemosyne HTTP API server-side errors in the last 5 minutes.
+      Namespace: AWS/ApiGateway
+      MetricName: 5xx
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      Dimensions:
+        - Name: ApiId
+          Value: !Ref HttpApi
+        - Name: Stage
+          Value: "$default"
+
 Outputs:
   ApiBaseUrl:
     Value: !GetAtt HttpApi.ApiEndpoint
@@ -170,3 +206,7 @@ Outputs:
     Value: !Ref MetadataTable
   BootstrapMode:
     Value: !If [HostedBootstrapEnabled, "hosted-style", "single-account local-admin"]
+  SyncApiErrorsAlarmName:
+    Value: !Ref SyncApiErrorsAlarm
+  HttpApiServerErrorsAlarmName:
+    Value: !Ref HttpApiServerErrorsAlarm
