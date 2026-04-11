@@ -131,6 +131,7 @@ Current test deployment workflow on this machine:
 
 - Use `.\scripts\deploy-tst.ps1` from the repo root
 - Use `.\scripts\backup-tst.ps1` from the repo root when you need a local export of the current `tst` metadata and encrypted payload bucket
+- Use `.\scripts\restore-tst-backup.ps1 -BackupPath <path>` to preview a restore plan for a prior backup export
 - The script is intentionally hard-scoped to AWS account `163649805194`
 - It builds the Lambda artifact, uploads it under a fresh S3 key, deploys `Mnemosyne-tst`, and runs a `/healthz` smoke check
 - Use `flutter pub run tool/smoke_sync_api.dart --base-url <api> --email <email> --password <password>` from `apps/client_flutter` for an encrypted login/push/pull smoke test

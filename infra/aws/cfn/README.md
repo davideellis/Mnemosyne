@@ -54,4 +54,9 @@ Use `.\scripts\backup-tst.ps1` from the repository root to export:
 
 The script writes to `dist/backups/<stack>/<timestamp>`.
 
-This is an operator convenience export, not a complete disaster-recovery system. Restoring from it is still a manual process today.
+Use `.\scripts\restore-tst-backup.ps1 -BackupPath <path>` to inspect a restore plan.
+
+- The restore script defaults to a dry run.
+- Add `-Apply` only when you intentionally want to write the backup back into the test stack.
+
+This is still an operator-oriented workflow, but the backup format is no longer one-way.
