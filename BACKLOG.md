@@ -49,3 +49,29 @@ Likely follow-up work once unblocked:
 - Validate `flutter build ipa`
 - Document the Apple signing and archive workflow
 - Add TestFlight-ready packaging steps to the release checklist
+
+## Test Environment
+
+### Known test smoke credentials
+
+Status:
+- Blocked
+
+Why it is blocked:
+- The new `.\scripts\run-tst-smoke.ps1` wrapper and expanded live smoke runner are working structurally, but end-to-end `tst` verification still needs valid account credentials for the deployed single-user test account.
+- A login attempt with the repo-default guess `demo@mnemosyne.local` / `demo-password` returned `HTTP 401: invalid credentials`.
+
+What is already working:
+- `Mnemosyne-tst` health checks
+- test-stack deployment
+- backup export
+- log inspection
+- local client and backend test suites
+
+Unblock conditions:
+- Record a known-good test-account email/password pair for `Mnemosyne-tst`, or
+- reset and re-bootstrap the test account with documented smoke credentials
+
+Likely follow-up work once unblocked:
+- Run `.\scripts\run-tst-smoke.ps1` as the default live verification step after deploys
+- Document the shared test-account rotation process

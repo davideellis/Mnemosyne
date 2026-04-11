@@ -94,6 +94,7 @@ The architecture details and agent-facing implementation guidance live in:
 - `ARCHITECTURE.md`
 - `DEVELOPMENT.md`
 - `AGENT.md`
+- `docs/release-runbook.md`
 
 ## Repository Status
 
