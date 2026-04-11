@@ -114,6 +114,9 @@ Windows note:
 - Windows Smart App Control can block unsigned Go test executables
 - On this machine, prefer running Go tests through WSL instead of disabling Smart App Control
 - Use `.\scripts\test-go.ps1` from the repo root for the default backend test path
+- Android builds on this machine expect `JAVA_HOME` to point at Android Studio's bundled JBR
+- Use `.\scripts\build-client-artifacts.ps1` from the repo root for the standard Windows + Android build pass
+- Add `-IncludeApple` to the same script to also drive the Mac mini for macOS and iOS simulator artifacts
 
 ## AWS Guidance
 
@@ -130,6 +133,7 @@ Current test deployment workflow on this machine:
 - The script is intentionally hard-scoped to AWS account `163649805194`
 - It builds the Lambda artifact, uploads it under a fresh S3 key, deploys `Mnemosyne-tst`, and runs a `/healthz` smoke check
 - Use `flutter pub run tool/smoke_sync_api.dart --base-url <api> --email <email> --password <password>` from `apps/client_flutter` for an encrypted login/push/pull smoke test
+- The smoke runner also supports `--device-name`, `--device-platform`, `--list-devices`, `--start-approval`, `--consume-approval`, and `--revoke-device --target-device-id <id>`
 - Do not point this script at production; keep production changes manual until the test path is stable
 
 Document at least:
