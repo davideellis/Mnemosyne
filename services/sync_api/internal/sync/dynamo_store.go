@@ -486,21 +486,49 @@ func (s *DynamoStore) RestoreTrash(req RestoreTrashRequest) (SyncChange, error) 
 	if !s.state.TrashObjectIDs[req.ObjectID] {
 		return SyncChange{}, ErrObjectNotInTrash
 	}
+	current := s.state.LatestChanges[req.ObjectID]
+	encryptedPayload := current.EncryptedPayload
+	if encryptedPayload == "" {
+		reference := s.state.PayloadRefs[current.ChangeID]
+		if reference != "" {
+			if s.payloadBlobs == nil {
+				return SyncChange{}, errors.New("payload blob store is not configured")
+			}
+			payload, err := s.payloadBlobs.GetPayload(reference)
+			if err != nil {
+				return SyncChange{}, err
+			}
+			encryptedPayload = payload
+		}
+	}
 
 	change := SyncChange{
 		ChangeID:          restoreChangeID(len(s.state.Changes) + 1),
 		ObjectID:          req.ObjectID,
-		Kind:              "note",
+		Kind:              current.Kind,
 		Operation:         "restore",
-		LogicalTimestamp:  "",
+		LogicalTimestamp:  time.Now().UTC().Format(time.RFC3339),
 		OriginDeviceID:    "server",
-		EncryptedMetadata: "",
-		EncryptedPayload:  "",
+		EncryptedMetadata: current.EncryptedMetadata,
+		EncryptedPayload:  encryptedPayload,
+	}
+	if change.Kind == "" {
+		change.Kind = "note"
+	}
+
+	storedChange := change
+	if change.EncryptedPayload != "" && s.payloadBlobs != nil {
+		reference, err := s.payloadBlobs.PutPayload(change.ChangeID, change.EncryptedPayload)
+		if err != nil {
+			return SyncChange{}, err
+		}
+		s.state.PayloadRefs[change.ChangeID] = reference
+		storedChange.EncryptedPayload = ""
 	}
 
 	delete(s.state.TrashObjectIDs, req.ObjectID)
-	s.state.LatestChanges[req.ObjectID] = change
-	s.state.Changes = append(s.state.Changes, change)
+	s.state.LatestChanges[req.ObjectID] = storedChange
+	s.state.Changes = append(s.state.Changes, storedChange)
 
 	if err := s.save(); err != nil {
 		return SyncChange{}, err

@@ -379,6 +379,61 @@ func TestFileStorePersistsDeviceLastSeen(t *testing.T) {
 	}
 }
 
+func TestFileStoreRestoreTrashPreservesEncryptedEnvelope(t *testing.T) {
+	tempDir := t.TempDir()
+	filePath := filepath.Join(tempDir, "state.json")
+
+	store, err := NewFileStore(filePath)
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	session, err := store.Bootstrap(AccountBootstrapRequest{
+		Email:                         "user@example.com",
+		PasswordVerifier:              "pw-proof",
+		RecoveryVerifier:              "rec-proof",
+		EncryptedMasterKeyForPassword: "enc-pw",
+		EncryptedMasterKeyForRecovery: "enc-recovery",
+		Device: Device{
+			DeviceID:   "device-1",
+			DeviceName: "Windows Laptop",
+			Platform:   "windows",
+		},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	_, err = store.Push(SyncPushRequest{
+		SessionToken: session.SessionToken,
+		Changes: []SyncChange{
+			{
+				ChangeID:          "change-trash-1",
+				ObjectID:          "note-1",
+				Kind:              "note",
+				Operation:         "trash",
+				LogicalTimestamp:  "2026-04-08T18:00:00Z",
+				EncryptedMetadata: "meta",
+				EncryptedPayload:  "payload",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("push trash change: %v", err)
+	}
+
+	change, err := store.RestoreTrash(RestoreTrashRequest{
+		SessionToken: session.SessionToken,
+		ObjectID:     "note-1",
+	})
+	if err != nil {
+		t.Fatalf("restore trash: %v", err)
+	}
+	if change.EncryptedMetadata != "meta" || change.EncryptedPayload != "payload" {
+		t.Fatalf("expected restore change to preserve encrypted envelope, got %+v", change)
+	}
+}
+
 func TestFileStoreRejectsExpiredSessionsAcrossReload(t *testing.T) {
 	tempDir := t.TempDir()
 	filePath := filepath.Join(tempDir, "state.json")

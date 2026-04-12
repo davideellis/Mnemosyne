@@ -443,11 +443,13 @@ func TestMemoryStoreRestoreTrashCreatesRestoreChange(t *testing.T) {
 		SessionToken: session.SessionToken,
 		Changes: []SyncChange{
 			{
-				ChangeID:         "change-trash-1",
-				ObjectID:         "note-1",
-				Kind:             "note",
-				Operation:        "trash",
-				LogicalTimestamp: "2026-04-08T18:00:00Z",
+				ChangeID:          "change-trash-1",
+				ObjectID:          "note-1",
+				Kind:              "note",
+				Operation:         "trash",
+				LogicalTimestamp:  "2026-04-08T18:00:00Z",
+				EncryptedMetadata: "meta",
+				EncryptedPayload:  "payload",
 			},
 		},
 	})
@@ -464,6 +466,9 @@ func TestMemoryStoreRestoreTrashCreatesRestoreChange(t *testing.T) {
 	}
 	if change.Operation != "restore" {
 		t.Fatalf("expected restore operation, got %q", change.Operation)
+	}
+	if change.EncryptedMetadata == "" || change.EncryptedPayload == "" {
+		t.Fatal("expected restore change to preserve encrypted note envelope")
 	}
 
 	pull, err := store.Pull(SyncPullRequest{SessionToken: session.SessionToken})

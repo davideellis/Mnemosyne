@@ -543,16 +543,20 @@ func (s *MemoryStore) RestoreTrash(req RestoreTrashRequest) (SyncChange, error) 
 	if !s.trashObjectIDs[req.ObjectID] {
 		return SyncChange{}, ErrObjectNotInTrash
 	}
+	current := s.latestChanges[req.ObjectID]
 
 	change := SyncChange{
 		ChangeID:          restoreChangeID(len(s.changes) + 1),
 		ObjectID:          req.ObjectID,
-		Kind:              "note",
+		Kind:              current.Kind,
 		Operation:         "restore",
-		LogicalTimestamp:  "",
+		LogicalTimestamp:  now.Format(time.RFC3339),
 		OriginDeviceID:    "server",
-		EncryptedMetadata: "",
-		EncryptedPayload:  "",
+		EncryptedMetadata: current.EncryptedMetadata,
+		EncryptedPayload:  current.EncryptedPayload,
+	}
+	if change.Kind == "" {
+		change.Kind = "note"
 	}
 
 	delete(s.trashObjectIDs, req.ObjectID)

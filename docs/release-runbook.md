@@ -70,6 +70,12 @@ Broader test-stack smoke from the repo root:
 .\scripts\run-tst-smoke.ps1 -Email <email> -Password <password>
 ```
 
+On this workstation, the wrapper can also use user-scoped environment variables:
+
+- `MNEMOSYNE_TST_EMAIL`
+- `MNEMOSYNE_TST_PASSWORD`
+- `MNEMOSYNE_TST_RECOVERY_KEY`
+
 Useful smoke runner modes:
 
 - `--full` for note sync, settings sync, trash restore, approval, and revoke
@@ -77,10 +83,11 @@ Useful smoke runner modes:
 - `--approval-roundtrip` for device approval and revocation only
 - `--list-devices` to inspect registered devices
 
-Current limitation:
+Current local setup:
 
-- the repo does not yet store a known-good shared `tst` smoke account credential set
-- maintainers need valid test-account credentials before live smoke can run end to end
+- the single-user `tst` account has been reset and re-bootstrapped successfully
+- live full smoke passes when the local `MNEMOSYNE_TST_*` environment variables are present
+- the credentials are intentionally machine-local and are not stored in the public repository
 
 ## Backup And Restore
 

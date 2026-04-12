@@ -1,7 +1,7 @@
 param(
-  [Parameter(Mandatory = $true)][string]$Email,
-  [Parameter(Mandatory = $true)][string]$Password,
-  [string]$RecoveryKey = "TEST-KEY1-TEST-KEY2",
+  [string]$Email,
+  [string]$Password,
+  [string]$RecoveryKey,
   [string]$Profile = "Mnemosyne-tst",
   [string]$Region = "us-east-2",
   [string]$StackName = "Mnemosyne-tst",
@@ -13,6 +13,38 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if ([string]::IsNullOrWhiteSpace($Email)) {
+  $Email = if ($env:MNEMOSYNE_TST_EMAIL) {
+    $env:MNEMOSYNE_TST_EMAIL
+  } else {
+    [Environment]::GetEnvironmentVariable("MNEMOSYNE_TST_EMAIL", "User")
+  }
+}
+if ([string]::IsNullOrWhiteSpace($Password)) {
+  $Password = if ($env:MNEMOSYNE_TST_PASSWORD) {
+    $env:MNEMOSYNE_TST_PASSWORD
+  } else {
+    [Environment]::GetEnvironmentVariable("MNEMOSYNE_TST_PASSWORD", "User")
+  }
+}
+if ([string]::IsNullOrWhiteSpace($RecoveryKey)) {
+  $RecoveryKey = if ($env:MNEMOSYNE_TST_RECOVERY_KEY) {
+    $env:MNEMOSYNE_TST_RECOVERY_KEY
+  } else {
+    [Environment]::GetEnvironmentVariable("MNEMOSYNE_TST_RECOVERY_KEY", "User")
+  }
+}
+if ([string]::IsNullOrWhiteSpace($RecoveryKey)) {
+  $RecoveryKey = "TEST-KEY1-TEST-KEY2"
+}
+
+if ([string]::IsNullOrWhiteSpace($Email)) {
+  throw "Email is required. Pass -Email or set MNEMOSYNE_TST_EMAIL."
+}
+if ([string]::IsNullOrWhiteSpace($Password)) {
+  throw "Password is required. Pass -Password or set MNEMOSYNE_TST_PASSWORD."
+}
 
 function Invoke-AwsJson {
   param(

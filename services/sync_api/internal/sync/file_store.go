@@ -455,16 +455,20 @@ func (s *FileStore) RestoreTrash(req RestoreTrashRequest) (SyncChange, error) {
 	if !s.state.TrashObjectIDs[req.ObjectID] {
 		return SyncChange{}, ErrObjectNotInTrash
 	}
+	current := s.state.LatestChanges[req.ObjectID]
 
 	change := SyncChange{
 		ChangeID:          restoreChangeID(len(s.state.Changes) + 1),
 		ObjectID:          req.ObjectID,
-		Kind:              "note",
+		Kind:              current.Kind,
 		Operation:         "restore",
-		LogicalTimestamp:  "",
+		LogicalTimestamp:  time.Now().UTC().Format(time.RFC3339),
 		OriginDeviceID:    "server",
-		EncryptedMetadata: "",
-		EncryptedPayload:  "",
+		EncryptedMetadata: current.EncryptedMetadata,
+		EncryptedPayload:  current.EncryptedPayload,
+	}
+	if change.Kind == "" {
+		change.Kind = "note"
 	}
 
 	delete(s.state.TrashObjectIDs, req.ObjectID)
