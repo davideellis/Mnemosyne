@@ -332,8 +332,59 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
 
     setState(() {
       _isDeleting = true;
-      _statusLabel = 'Restoring locally';
+      _statusLabel = _session == null ? 'Restoring locally' : 'Restoring note';
+      _syncMessage = null;
     });
+
+    if (_session != null &&
+        !await _ensureActiveSession(
+          'Your sync session expired on this device. Sign in again to continue syncing.',
+        )) {
+      try {
+        final restoredChange = await _syncApiClient.restoreTrash(
+          baseUri: _parseBaseUri(),
+          session: _session!,
+          objectId: note.objectId,
+        );
+        final updatedSnapshot = await _repository.applyRemoteChanges(
+          rootPath: snapshot.rootPath,
+          changes: <RemoteSyncChange>[restoredChange],
+        );
+
+        if (!mounted) {
+          return;
+        }
+
+        setState(() {
+          _replaceSnapshot(
+            updatedSnapshot,
+            statusLabel: 'Restored from sync',
+            preferredObjectId: note.objectId,
+            preferTrashed: false,
+          );
+          _knownNoteDigests = _buildKnownDigests(updatedSnapshot);
+          _knownTrashDigests = _buildTrashDigests(updatedSnapshot);
+          _syncMessage = 'Restored note across synced devices.';
+          _isDeleting = false;
+        });
+        await _persistState();
+        return;
+      } catch (error) {
+        if (!mounted) {
+          return;
+        }
+        if (error is SyncApiException && error.statusCode == 401) {
+          await _handleUnauthorizedSession(
+            'Your sync session is no longer valid. Sign in again to continue syncing.',
+          );
+        } else {
+          setState(() {
+            _syncMessage =
+                'Restore will continue locally and sync later. $error';
+          });
+        }
+      }
+    }
 
     final updatedSnapshot = await _repository.restoreNote(
       rootPath: snapshot.rootPath,
@@ -352,6 +403,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         preferTrashed: false,
       );
       _isDeleting = false;
+      _syncMessage ??= 'Restored locally.';
     });
     await _persistState();
     _scheduleAutoSync();
@@ -1840,23 +1892,106 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   }
 
   List<VaultNote> _filteredNotes(List<VaultNote> source) {
-    return source.where((note) {
+    final scopedNotes = source.where((note) {
       if (_selectedFolderFilter != null &&
           !_noteMatchesFolder(note, _selectedFolderFilter!)) {
         return false;
       }
-      if (_searchQuery.isEmpty) {
-        return true;
-      }
-      final haystack = [
-        note.title,
-        note.relativePath,
-        note.markdown,
-        note.tags.join(' '),
-        note.wikilinks.join(' '),
-      ].join('\n').toLowerCase();
-      return haystack.contains(_searchQuery);
+      return true;
     }).toList(growable: false);
+
+    if (_searchQuery.isEmpty) {
+      return scopedNotes;
+    }
+
+    final tokens = _searchQuery
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toList(growable: false);
+    final rankedNotes = <({VaultNote note, int score})>[];
+
+    for (final note in scopedNotes) {
+      final score = _noteSearchScore(note, _searchQuery, tokens);
+      if (score <= 0) {
+        continue;
+      }
+      rankedNotes.add((note: note, score: score));
+    }
+
+    rankedNotes.sort((left, right) {
+      final scoreComparison = right.score.compareTo(left.score);
+      if (scoreComparison != 0) {
+        return scoreComparison;
+      }
+
+      final modifiedComparison =
+          right.note.modifiedAt.compareTo(left.note.modifiedAt);
+      if (modifiedComparison != 0) {
+        return modifiedComparison;
+      }
+
+      return left.note.title.compareTo(right.note.title);
+    });
+
+    return rankedNotes.map((entry) => entry.note).toList(growable: false);
+  }
+
+  int _noteSearchScore(VaultNote note, String query, List<String> tokens) {
+    final title = note.title.toLowerCase();
+    final relativePath = note.relativePath.toLowerCase();
+    final markdown = note.markdown.toLowerCase();
+    final tags =
+        note.tags.map((tag) => tag.toLowerCase()).toList(growable: false);
+    final wikilinks = note.wikilinks
+        .map((link) => link.toLowerCase())
+        .toList(growable: false);
+    final backlinks = note.backlinks
+        .map((link) => link.toLowerCase())
+        .toList(growable: false);
+
+    var score = 0;
+
+    if (title == query) {
+      score += 400;
+    } else if (title.startsWith(query)) {
+      score += 260;
+    } else if (title.contains(query)) {
+      score += 180;
+    }
+
+    if (relativePath == query) {
+      score += 220;
+    } else if (relativePath.contains(query)) {
+      score += 120;
+    }
+
+    for (final token in tokens) {
+      if (title == token) {
+        score += 160;
+      } else if (title.startsWith(token)) {
+        score += 110;
+      } else if (title.contains(token)) {
+        score += 70;
+      }
+
+      if (relativePath.contains(token)) {
+        score += 45;
+      }
+      if (tags.contains(token)) {
+        score += 80;
+      }
+      if (wikilinks.contains(token)) {
+        score += 55;
+      }
+      if (backlinks.contains(token)) {
+        score += 35;
+      }
+      if (markdown.contains(token)) {
+        score += 10;
+      }
+    }
+
+    return score;
   }
 
   bool _noteMatchesFolder(VaultNote note, String folder) {

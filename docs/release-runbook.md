@@ -83,6 +83,20 @@ Useful smoke runner modes:
 - `--approval-roundtrip` for device approval and revocation only
 - `--list-devices` to inspect registered devices
 
+To intentionally reset the single-user test account and immediately re-bootstrap it:
+
+```powershell
+.\scripts\reset-tst-account.ps1
+```
+
+That script:
+
+- takes a backup first by default
+- deletes the single DynamoDB state record
+- purges versioned payload objects from the `tst` bucket
+- re-bootstraps the account using the local `MNEMOSYNE_TST_*` credentials
+- runs the full smoke flow after reset
+
 Current local setup:
 
 - the single-user `tst` account has been reset and re-bootstrapped successfully

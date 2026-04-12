@@ -95,6 +95,7 @@ $stateItem | ConvertTo-Json -Depth 100 | Set-Content -Encoding UTF8 (Join-Path $
 Write-Host "Exporting S3 objects from $bucketName" -ForegroundColor Cyan
 $token = $null
 $exportedObjects = @()
+$missingObjects = @()
 do {
   $arguments = @(
     "--profile", $Profile,
@@ -110,12 +111,21 @@ do {
   foreach ($object in ($page.Contents | Where-Object { $_.Key })) {
     $safeName = Get-SafeObjectFileName -Key $object.Key
     $targetPath = Join-Path $notesPath $safeName
-    & aws --profile $Profile --region $Region s3api get-object `
+    $downloadOutput = & aws --profile $Profile --region $Region s3api get-object `
       --bucket $bucketName `
       --key $object.Key `
-      $targetPath | Out-Null
+      $targetPath 2>&1
     if ($LASTEXITCODE -ne 0) {
-      throw "Failed to export s3://$bucketName/$($object.Key)"
+      if (Test-Path $targetPath) {
+        Remove-Item -LiteralPath $targetPath -Force -ErrorAction SilentlyContinue
+      }
+      $missingObjects += [ordered]@{
+        key = $object.Key
+        size = $object.Size
+        lastModified = $object.LastModified
+        error = ($downloadOutput | Out-String).Trim()
+      }
+      continue
     }
     $exportedObjects += [ordered]@{
       key = $object.Key
@@ -129,9 +139,13 @@ do {
 } while ($token)
 
 $exportedObjects | ConvertTo-Json -Depth 10 | Set-Content -Encoding UTF8 (Join-Path $backupRoot "objects-manifest.json")
+$missingObjects | ConvertTo-Json -Depth 10 | Set-Content -Encoding UTF8 (Join-Path $backupRoot "missing-objects-manifest.json")
 
 if ($exportedObjects.Count -eq 0) {
   Write-Host "  No note payload objects found." -ForegroundColor DarkYellow
+}
+if ($missingObjects.Count -gt 0) {
+  Write-Host "  Missing payload objects: $($missingObjects.Count)" -ForegroundColor DarkYellow
 }
 
 $bucketVersioning = Invoke-AwsJson @(
@@ -155,6 +169,7 @@ $manifest = [ordered]@{
   bucketName = $bucketName
   metadataTableName = $tableName
   noteObjectCount = $exportedObjects.Count
+  missingObjectCount = $missingObjects.Count
   bucketVersioning = $bucketVersioning.Status
   pointInTimeRecovery = $continuousBackups.ContinuousBackupsDescription.PointInTimeRecoveryDescription.PointInTimeRecoveryStatus
 }
