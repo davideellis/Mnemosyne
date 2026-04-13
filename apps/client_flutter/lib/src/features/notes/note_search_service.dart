@@ -55,6 +55,7 @@ class NoteSearchService {
   int _noteSearchScore(VaultNote note, String query, List<String> tokens) {
     final title = note.title.toLowerCase();
     final relativePath = note.relativePath.toLowerCase();
+    final basename = relativePath.split('/').last.replaceAll('.md', '');
     final markdown = note.markdown.toLowerCase();
     final tags =
         note.tags.map((tag) => tag.toLowerCase()).toList(growable: false);
@@ -75,35 +76,57 @@ class NoteSearchService {
       score += 180;
     }
 
-    if (relativePath == query) {
+    if (relativePath == query || basename == query) {
       score += 220;
     } else if (relativePath.contains(query)) {
       score += 120;
     }
 
     for (final token in tokens) {
+      var tokenMatched = false;
+
       if (title == token) {
         score += 160;
+        tokenMatched = true;
       } else if (title.startsWith(token)) {
         score += 110;
+        tokenMatched = true;
       } else if (title.contains(token)) {
         score += 70;
+        tokenMatched = true;
+      }
+
+      if (basename == token) {
+        score += 110;
+        tokenMatched = true;
+      } else if (basename.contains(token)) {
+        score += 60;
+        tokenMatched = true;
       }
 
       if (relativePath.contains(token)) {
         score += 45;
+        tokenMatched = true;
       }
       if (tags.contains(token)) {
         score += 80;
+        tokenMatched = true;
       }
       if (wikilinks.contains(token)) {
         score += 55;
+        tokenMatched = true;
       }
       if (backlinks.contains(token)) {
         score += 35;
+        tokenMatched = true;
       }
       if (markdown.contains(token)) {
         score += 10;
+        tokenMatched = true;
+      }
+
+      if (!tokenMatched) {
+        return 0;
       }
     }
 

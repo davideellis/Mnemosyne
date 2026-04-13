@@ -121,4 +121,53 @@ void main() {
     expect(result, hasLength(2));
     expect(result.first.title, 'Checklist');
   });
+
+  test('requires all query tokens to match somewhere in the note', () {
+    final notes = <VaultNote>[
+      note(
+        title: 'Release Checklist',
+        relativePath: 'Projects/release-checklist.md',
+        modifiedAt: DateTime.utc(2026, 4, 2),
+        tags: const <String>['release'],
+        markdown: 'Checklist for deployment readiness.',
+      ),
+      note(
+        title: 'Release Notes',
+        relativePath: 'Projects/release-notes.md',
+        modifiedAt: DateTime.utc(2026, 4, 3),
+        markdown: 'Summary only.',
+      ),
+    ];
+
+    final result = service.filterAndRank(
+      notes: notes,
+      query: 'release checklist',
+    );
+
+    expect(result, hasLength(1));
+    expect(result.single.title, 'Release Checklist');
+  });
+
+  test('exact basename matches outrank partial path matches', () {
+    final notes = <VaultNote>[
+      note(
+        title: 'Meeting',
+        relativePath: 'Journal/meeting.md',
+        modifiedAt: DateTime.utc(2026, 4, 1),
+      ),
+      note(
+        title: 'Team Sync',
+        relativePath: 'Meetings/team-sync.md',
+        modifiedAt: DateTime.utc(2026, 4, 5),
+      ),
+    ];
+
+    final result = service.filterAndRank(
+      notes: notes,
+      query: 'meeting',
+    );
+
+    expect(result, hasLength(2));
+    expect(result.first.relativePath, 'Journal/meeting.md');
+  });
 }
