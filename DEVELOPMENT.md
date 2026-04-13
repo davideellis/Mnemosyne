@@ -137,6 +137,7 @@ Current test deployment workflow on this machine:
 - Use `.\scripts\show-tst-logs.ps1` from the repo root to inspect recent Lambda logs and request IDs
 - Use `.\scripts\run-tst-smoke.ps1 -Email <email> -Password <password>` from the repo root for a broader encrypted live smoke pass against `Mnemosyne-tst`
 - On this machine, `.\scripts\run-tst-smoke.ps1` can also read `MNEMOSYNE_TST_EMAIL`, `MNEMOSYNE_TST_PASSWORD`, and `MNEMOSYNE_TST_RECOVERY_KEY` from the user environment
+- If local Flutter is blocked on Windows, use `.\scripts\run-tst-smoke.ps1 -RemoteMacHost mnemosyne-mac` to run the same smoke flow from the Mac mini
 - Use `.\scripts\reset-tst-account.ps1` only when you intentionally want to wipe and re-bootstrap the single-user `tst` account
 - Use `.\scripts\build-client-artifacts.ps1` to build Windows and Android artifacts, then `.\scripts\package-release-artifacts.ps1` to collect them into a versioned release bundle
 - The script is intentionally hard-scoped to AWS account `163649805194`

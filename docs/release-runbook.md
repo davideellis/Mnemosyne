@@ -77,6 +77,12 @@ Broader test-stack smoke from the repo root:
 .\scripts\run-tst-smoke.ps1 -Email <email> -Password <password>
 ```
 
+If local Flutter is blocked on the Windows workstation, run the same wrapper through the Mac mini:
+
+```powershell
+.\scripts\run-tst-smoke.ps1 -RemoteMacHost mnemosyne-mac
+```
+
 On this workstation, the wrapper can also use user-scoped environment variables:
 
 - `MNEMOSYNE_TST_EMAIL`

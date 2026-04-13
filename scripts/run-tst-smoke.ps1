@@ -8,6 +8,7 @@ param(
   [string]$DeviceName = "Smoke Runner",
   [string]$DevicePlatform = "windows",
   [string]$ApprovalCode = "ABCD-EFGH-IJKL",
+  [string]$RemoteMacHost,
   [switch]$BootstrapOnly,
   [switch]$Bootstrap
 )
@@ -71,6 +72,77 @@ function Get-StackOutputValue {
   return $match.OutputValue
 }
 
+function Test-UsableFlutter {
+  param(
+    [string]$Path
+  )
+
+  if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path $Path)) {
+    return $false
+  }
+
+  try {
+    & $Path --version *> $null
+    return $LASTEXITCODE -eq 0
+  }
+  catch {
+    return $false
+  }
+}
+
+function Invoke-RemoteMacSmoke {
+  param(
+    [Parameter(Mandatory = $true)][string]$Host,
+    [Parameter(Mandatory = $true)][string]$ApiBaseUrl,
+    [Parameter(Mandatory = $true)][string]$Email,
+    [Parameter(Mandatory = $true)][string]$Password,
+    [Parameter(Mandatory = $true)][string]$RecoveryKey,
+    [Parameter(Mandatory = $true)][string]$DeviceName,
+    [Parameter(Mandatory = $true)][string]$DevicePlatform,
+    [Parameter(Mandatory = $true)][string]$ApprovalCode,
+    [Parameter(Mandatory = $false)][bool]$BootstrapEnabled,
+    [Parameter(Mandatory = $false)][bool]$BootstrapOnlyEnabled
+  )
+
+  $escapedBaseUrl = $ApiBaseUrl.Replace("'", "'\''")
+  $escapedEmail = $Email.Replace("'", "'\''")
+  $escapedPassword = $Password.Replace("'", "'\''")
+  $escapedRecoveryKey = $RecoveryKey.Replace("'", "'\''")
+  $escapedDeviceName = $DeviceName.Replace("'", "'\''")
+  $escapedDevicePlatform = $DevicePlatform.Replace("'", "'\''")
+  $escapedApprovalCode = $ApprovalCode.Replace("'", "'\''")
+
+  $remoteArgs = @(
+    "pub run tool/smoke_sync_api.dart",
+    "--base-url '$escapedBaseUrl'",
+    "--email '$escapedEmail'",
+    "--password '$escapedPassword'",
+    "--recovery-key '$escapedRecoveryKey'",
+    "--device-name '$escapedDeviceName'",
+    "--device-platform '$escapedDevicePlatform'",
+    "--approval-code '$escapedApprovalCode'"
+  )
+  if ($BootstrapEnabled) {
+    $remoteArgs += "--bootstrap"
+  }
+  if (-not $BootstrapOnlyEnabled) {
+    $remoteArgs += "--full"
+  }
+  $remoteSmokeCommand = "~/dev/flutter/bin/flutter $($remoteArgs -join ' ')"
+
+  $remoteCommand = @"
+export PATH=/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:`$HOME/dev/flutter/bin:`$PATH
+export LANG=en_US.UTF-8
+cd ~/dev/Mnemosyne/apps/client_flutter
+$remoteSmokeCommand
+"@
+
+  & ssh $Host $remoteCommand
+  if ($LASTEXITCODE -ne 0) {
+    throw "Remote smoke command failed on $Host with exit code $LASTEXITCODE"
+  }
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $clientRoot = Join-Path $repoRoot "apps/client_flutter"
 $flutterPath = (Get-Command flutter -ErrorAction SilentlyContinue).Source
@@ -80,9 +152,7 @@ if (-not $flutterPath) {
     $flutterPath = $candidateFlutter
   }
 }
-if (-not $flutterPath) {
-  throw "Unable to locate Flutter. Install Flutter or update scripts/run-tst-smoke.ps1 with the local path."
-}
+$localFlutterUsable = Test-UsableFlutter -Path $flutterPath
 
 $stack = Invoke-AwsJson @(
   "--profile", $Profile,
@@ -116,6 +186,28 @@ Write-Host "  API:        $apiBaseUrl"
 Write-Host "  Device:     $DeviceName ($DevicePlatform)"
 if ($Bootstrap -or $BootstrapOnly) {
   Write-Host "  Bootstrap:  enabled"
+}
+if (-not $localFlutterUsable -and -not [string]::IsNullOrWhiteSpace($RemoteMacHost)) {
+  Write-Host "  Runner:     remote via $RemoteMacHost" -ForegroundColor Yellow
+}
+
+if (-not $localFlutterUsable) {
+  if ([string]::IsNullOrWhiteSpace($RemoteMacHost)) {
+    throw "Local Flutter is unavailable or blocked. Pass -RemoteMacHost <ssh-host> to run the smoke flow on the Mac mini."
+  }
+
+  Invoke-RemoteMacSmoke `
+    -Host $RemoteMacHost `
+    -ApiBaseUrl $apiBaseUrl `
+    -Email $Email `
+    -Password $Password `
+    -RecoveryKey $RecoveryKey `
+    -DeviceName $DeviceName `
+    -DevicePlatform $DevicePlatform `
+    -ApprovalCode $ApprovalCode `
+    -BootstrapEnabled $Bootstrap.IsPresent `
+    -BootstrapOnlyEnabled $BootstrapOnly.IsPresent
+  return
 }
 
 Push-Location $clientRoot
