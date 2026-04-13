@@ -109,7 +109,7 @@ void main() {
     );
     await tester.tap(find.byType(DropdownButton<String>).at(1));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('ocean').last);
+    await tester.tap(find.text('Ocean').last);
     await tester.pumpAndSettle();
     expect(updatedSettings?.colorPalette, 'ocean');
 
@@ -128,11 +128,5 @@ void main() {
     );
     expect(find.text('Selected Note'), findsOneWidget);
     expect(find.text('journal/daily-note.md'), findsOneWidget);
-    await tester.scrollUntilVisible(
-      find.text('Graph'),
-      200,
-      scrollable: find.byType(Scrollable),
-    );
-    expect(find.text('Graph'), findsOneWidget);
   });
 }

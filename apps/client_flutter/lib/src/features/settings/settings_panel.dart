@@ -55,8 +55,8 @@ class SettingsPanel extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Container(
-      color: theme.colorScheme.surfaceContainerHigh,
-      padding: const EdgeInsets.all(20),
+      color: theme.colorScheme.surfaceContainer,
+      padding: const EdgeInsets.all(16),
       child: ListView(
         children: [
           Text(
@@ -65,7 +65,7 @@ class SettingsPanel extends StatelessWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           _SettingTile(
             title: 'Notes',
             subtitle: '$noteCount local Markdown files',
@@ -73,7 +73,7 @@ class SettingsPanel extends StatelessWidget {
           ),
           _ChoiceTile(
             title: 'Theme',
-            subtitle: settings.themeMode,
+            subtitle: _displaySettingLabel(settings.themeMode),
             icon: Icons.palette_outlined,
             value: settings.themeMode,
             options: const <String>['system', 'light', 'dark'],
@@ -83,10 +83,16 @@ class SettingsPanel extends StatelessWidget {
           ),
           _ChoiceTile(
             title: 'Palette',
-            subtitle: settings.colorPalette,
+            subtitle: _displaySettingLabel(settings.colorPalette),
             icon: Icons.color_lens_outlined,
             value: settings.colorPalette,
-            options: const <String>['emerald', 'ocean', 'amber', 'rose', 'slate'],
+            options: const <String>[
+              'emerald',
+              'ocean',
+              'amber',
+              'rose',
+              'slate'
+            ],
             onChanged: (value) => onSettingsChanged(
               settings.copyWith(colorPalette: value),
             ),
@@ -215,7 +221,7 @@ class SettingsPanel extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             accountSection!,
           ],
           if (note != null) ...[
@@ -265,12 +271,6 @@ class SettingsPanel extends StatelessWidget {
                   : 'Disabled for this workspace',
               icon: Icons.call_split_outlined,
             ),
-            const SizedBox(height: 16),
-            _GraphCard(
-              selectedNote: note!,
-              notes: notes,
-              settings: settings,
-            ),
           ],
         ],
       ),
@@ -302,16 +302,34 @@ String _formatAbsoluteTimestamp(DateTime value) {
   return '${local.month}/${local.day}/${local.year} $hour:$minute $suffix';
 }
 
-class _GraphCard extends StatelessWidget {
-  const _GraphCard({
+String _displaySettingLabel(String value) {
+  if (value.isEmpty) {
+    return value;
+  }
+
+  return value
+      .split(RegExp(r'[_\-\s]+'))
+      .where((segment) => segment.isNotEmpty)
+      .map(
+        (segment) =>
+            '${segment[0].toUpperCase()}${segment.substring(1).toLowerCase()}',
+      )
+      .join(' ');
+}
+
+class NoteGraphCard extends StatelessWidget {
+  const NoteGraphCard({
     required this.selectedNote,
     required this.notes,
     required this.settings,
+    this.compact = false,
+    super.key,
   });
 
   final VaultNote selectedNote;
   final List<VaultNote> notes;
   final WorkspaceSettings settings;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -323,7 +341,7 @@ class _GraphCard extends StatelessWidget {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(compact ? 14 : 16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -333,9 +351,9 @@ class _GraphCard extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: compact ? 10 : 12),
             SizedBox(
-              height: 200,
+              height: compact ? 180 : 200,
               child: CustomPaint(
                 painter: _GraphPainter(
                   centerLabel: selectedNote.title,
@@ -348,7 +366,7 @@ class _GraphCard extends StatelessWidget {
                 child: const SizedBox.expand(),
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: compact ? 10 : 12),
             Text(
               linkedTitles.isEmpty
                   ? 'No linked notes yet.'
@@ -492,7 +510,7 @@ class _ChoiceTile extends StatelessWidget {
             for (final option in options)
               DropdownMenuItem<String>(
                 value: option,
-                child: Text(option),
+                child: Text(_displaySettingLabel(option)),
               ),
           ],
         ),

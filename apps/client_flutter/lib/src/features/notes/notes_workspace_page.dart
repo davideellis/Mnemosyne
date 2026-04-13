@@ -5,7 +5,6 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../widgets/status_chip.dart';
 import '../onboarding/onboarding_card.dart';
 import '../settings/settings_panel.dart';
 import '../settings/workspace_settings.dart';
@@ -27,6 +26,10 @@ class NotesWorkspacePage extends StatefulWidget {
 }
 
 class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
+  static const MethodChannel _windowChannel = MethodChannel(
+    'mnemosyne/window',
+  );
+
   final LocalVaultRepository _repository = LocalVaultRepository();
   final AppStateRepository _appStateRepository = AppStateRepository();
   final SecureKeyRepository _secureKeyRepository = SecureKeyRepository();
@@ -62,7 +65,10 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   String? _lastNoteFolder;
   String? _selectedFolderFilter;
   WorkspaceSettings _settings = const WorkspaceSettings();
-  bool _showWorkspacePanel = true;
+  bool _showGraphPanel = true;
+  bool _showVaultPanel = false;
+  bool _showWorkspacePanel = false;
+  bool _isWindowMaximized = false;
   String _syncCursor = '';
   String? _syncMessage;
   DateTime? _lastSyncAttemptAt;
@@ -79,6 +85,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     _searchController.addListener(_handleSearchChange);
     _editorController.addListener(_handleEditorChange);
     _loadVault();
+    unawaited(_refreshWindowState());
   }
 
   @override
@@ -117,6 +124,8 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
           Map<String, String>.from(persistedState.knownTrashDigests);
       _lastNoteFolder = persistedState.lastNoteFolder;
       _settings = persistedState.settings;
+      _showGraphPanel = persistedState.showGraphPanel;
+      _showVaultPanel = persistedState.showVaultPanel;
       _showWorkspacePanel = persistedState.showWorkspacePanel;
       _syncCursor = persistedState.syncCursor ?? '';
       _apiBaseUrlController.text =
@@ -1167,6 +1176,99 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     }
   }
 
+  Future<void> _openSearchContext() async {
+    final snapshot = _snapshot;
+    if (snapshot == null) {
+      return;
+    }
+
+    final selection = await showDialog<_SearchSelection>(
+      context: context,
+      builder: (context) => _SearchContextDialog(
+        notes: snapshot.notes,
+        trashedNotes: snapshot.trashedNotes,
+        searchService: _noteSearchService,
+      ),
+    );
+    if (!mounted || selection == null) {
+      return;
+    }
+
+    if (selection.trashed) {
+      await _selectTrashedNoteWithGuard(selection.note);
+      return;
+    }
+    await _selectNoteWithGuard(selection.note);
+  }
+
+  Future<void> _refreshWindowState() async {
+    if (!Platform.isWindows) {
+      return;
+    }
+    try {
+      final maximized =
+          await _windowChannel.invokeMethod<bool>('isMaximized') ?? false;
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isWindowMaximized = maximized;
+      });
+    } catch (_) {
+      // Leave the Flutter shell usable even if the native channel is unavailable.
+    }
+  }
+
+  Future<void> _minimizeWindow() async {
+    if (!Platform.isWindows) {
+      return;
+    }
+    try {
+      await _windowChannel.invokeMethod<void>('minimize');
+    } catch (_) {}
+  }
+
+  Future<void> _maximizeOrRestoreWindow() async {
+    if (!Platform.isWindows) {
+      return;
+    }
+    try {
+      await _windowChannel.invokeMethod<void>('maximizeOrRestore');
+      await _refreshWindowState();
+    } catch (_) {}
+  }
+
+  Future<void> _closeWindow() async {
+    if (!Platform.isWindows) {
+      return;
+    }
+    try {
+      await _windowChannel.invokeMethod<void>('close');
+    } catch (_) {}
+  }
+
+  Future<void> _startWindowDrag() async {
+    if (!Platform.isWindows) {
+      return;
+    }
+    try {
+      await _windowChannel.invokeMethod<void>('startDrag');
+      await _refreshWindowState();
+    } catch (_) {}
+  }
+
+  Future<void> _startWindowResize(String direction) async {
+    if (!Platform.isWindows) {
+      return;
+    }
+    try {
+      await _windowChannel.invokeMethod<void>('startResize', <String, String>{
+        'direction': direction,
+      });
+      await _refreshWindowState();
+    } catch (_) {}
+  }
+
   Future<void> _persistState() {
     final snapshot = _snapshot;
     return _appStateRepository.save(
@@ -1179,6 +1281,8 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         knownTrashDigests: _knownTrashDigests,
         lastNoteFolder: _lastNoteFolder,
         settings: _settings,
+        showGraphPanel: _showGraphPanel,
+        showVaultPanel: _showVaultPanel,
         showWorkspacePanel: _showWorkspacePanel,
         syncCursor: _syncCursor,
         vaultRootPath: snapshot?.rootPath,
@@ -1669,30 +1773,30 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     required List<VaultNote> selectedTrashedNotes,
     required List<String> selectedFolders,
     required VaultNote? selectedNote,
-    required String statusLabel,
   }) {
     return Container(
-      color: theme.colorScheme.surfaceContainerHighest,
+      color: theme.colorScheme.surfaceContainer,
       child: ListView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         children: [
           Text(
-            'Mnemosyne',
-            style: theme.textTheme.headlineMedium?.copyWith(
+            'Vaults',
+            style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 8),
-          StatusChip(label: statusLabel),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           Text(
-            'Vault',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
+            'Current vault',
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(height: 8),
-          Text(snapshot?.rootPath ?? ''),
+          const SizedBox(height: 4),
+          Text(
+            snapshot?.rootPath ?? '',
+            style: theme.textTheme.bodySmall,
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: _vaultPathController,
@@ -1702,22 +1806,24 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
             ),
           ),
           const SizedBox(height: 12),
-          FilledButton.tonalIcon(
+          FilledButton.tonal(
             onPressed: _openVaultFromInput,
-            icon: const Icon(Icons.folder_open),
-            label: const Text('Open vault'),
+            child: const Text('Open vault'),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           Text(
             'Folders',
-            style: theme.textTheme.titleMedium?.copyWith(
+            style: theme.textTheme.labelLarge?.copyWith(
               fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           ListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
+            minVerticalPadding: 0,
+            visualDensity: const VisualDensity(horizontal: -2, vertical: -3),
             selected: _selectedFolderFilter == null,
             leading: const Icon(Icons.notes_outlined),
             title: const Text('All notes'),
@@ -1734,6 +1840,8 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
             ListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
+              minVerticalPadding: 0,
+              visualDensity: const VisualDensity(horizontal: -2, vertical: -3),
               selected: _selectedFolderFilter == folder,
               title: Text(folder),
               leading: const Icon(Icons.folder_open_outlined),
@@ -1750,15 +1858,19 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
             const SizedBox(height: 12),
             Text(
               'Trash',
-              style: theme.textTheme.titleMedium?.copyWith(
+              style: theme.textTheme.labelLarge?.copyWith(
                 fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             for (final note in selectedTrashedNotes)
               ListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
+                minVerticalPadding: 0,
+                visualDensity:
+                    const VisualDensity(horizontal: -2, vertical: -3),
                 title: Text(note.title),
                 subtitle: Text(note.relativePath),
                 leading: const Icon(Icons.delete_outline),
@@ -1810,6 +1922,70 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         onStartApproval: _startDeviceApproval,
         onSignOut: _signOut,
       ),
+    );
+  }
+
+  Widget _buildUtilityRail({
+    required ThemeData theme,
+    required VaultSnapshot? snapshot,
+    required List<VaultNote> trashedNotes,
+    required List<String> selectedFolders,
+    required VaultNote? selectedNote,
+    required int pendingSyncChanges,
+  }) {
+    final sections = <Widget>[
+      if (selectedNote != null && _showGraphPanel)
+        NoteGraphCard(
+          selectedNote: selectedNote,
+          notes: snapshot?.notes ?? const <VaultNote>[],
+          settings: _settings,
+          compact: true,
+        ),
+      if (_showVaultPanel)
+        ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: _buildSidebarPane(
+            theme: theme,
+            snapshot: snapshot,
+            selectedTrashedNotes: trashedNotes,
+            selectedFolders: selectedFolders,
+            selectedNote: selectedNote,
+          ),
+        ),
+      if (_showWorkspacePanel)
+        ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: _buildSettingsPane(
+            snapshot: snapshot,
+            selectedNote: selectedNote,
+            pendingSyncChanges: pendingSyncChanges,
+          ),
+        ),
+    ];
+
+    if (sections.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        border: Border(
+          left: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: sections.length == 1
+          ? sections.first
+          : Column(
+              children: [
+                Expanded(child: sections[0]),
+                for (var index = 1; index < sections.length; index++) ...[
+                  const SizedBox(height: 12),
+                  Expanded(child: sections[index]),
+                ],
+              ],
+            ),
     );
   }
 
@@ -1881,56 +2057,35 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         child: Focus(
           autofocus: true,
           child: Scaffold(
+            backgroundColor: theme.colorScheme.surface,
             body: SafeArea(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : LayoutBuilder(
                       builder: (context, shellConstraints) {
                         final isNarrowShell = shellConstraints.maxWidth < 1200;
-                        final sidebarPane = _buildSidebarPane(
-                          theme: theme,
-                          snapshot: snapshot,
-                          selectedTrashedNotes: trashedNotes,
-                          selectedFolders: selectedFolders,
-                          selectedNote: selectedNote,
-                          statusLabel: statusLabel,
-                        );
-                        final settingsPane = _buildSettingsPane(
-                          snapshot: snapshot,
-                          selectedNote: selectedNote,
-                          pendingSyncChanges: pendingSyncChanges,
-                        );
-
                         final workspacePane = Column(
                           children: [
-                            _TopBar(
+                            _WindowChrome(
                               compact: isNarrowShell,
-                              showWorkspacePanel: _showWorkspacePanel,
-                              searchController: _searchController,
-                              isCreating: _isCreating,
-                              isRenaming: _isRenaming,
-                              isSaving: _isSaving,
-                              isDeleting: _isDeleting,
-                              isSyncing: _isSyncing,
-                              selectedNoteIsTrashed: _selectedNoteIsTrashed,
-                              onCreate: _createNote,
-                              onRename: _renameSelectedNote,
-                              onSave: _saveSelectedNote,
-                              onDeleteOrRestore: _selectedNoteIsTrashed
-                                  ? _restoreSelectedNote
-                                  : _deleteSelectedNote,
-                              onToggleWorkspacePanel: () async {
-                                setState(() {
-                                  _showWorkspacePanel = !_showWorkspacePanel;
-                                });
-                                await _persistState();
-                              },
-                              onCommandPalette: _openCommandPalette,
-                              onSync: () => _syncVault(),
+                              showWindowControls: Platform.isWindows,
+                              isWindowMaximized: _isWindowMaximized,
+                              onStartDrag: _startWindowDrag,
+                              onMinimize: _minimizeWindow,
+                              onMaximizeOrRestore: _maximizeOrRestoreWindow,
+                              onClose: _closeWindow,
                             ),
                             Expanded(
                               child: LayoutBuilder(
                                 builder: (context, constraints) {
+                                  final utilityPane = _buildUtilityRail(
+                                    theme: theme,
+                                    snapshot: snapshot,
+                                    trashedNotes: trashedNotes,
+                                    selectedFolders: selectedFolders,
+                                    selectedNote: selectedNote,
+                                    pendingSyncChanges: pendingSyncChanges,
+                                  );
                                   final notesPane = _NotesListPane(
                                     notes: notes,
                                     trashedNotes: trashedNotes,
@@ -1944,7 +2099,8 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                     },
                                     onSelectTrash: (note) {
                                       unawaited(
-                                          _selectTrashedNoteWithGuard(note));
+                                        _selectTrashedNoteWithGuard(note),
+                                      );
                                     },
                                   );
                                   final editorPane = _EditorPane(
@@ -1955,59 +2111,127 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                     controller: _editorController,
                                     onOpenLinkedNote: _openLinkedNote,
                                   );
+                                  final actionRail = _ActionRail(
+                                    compact: isNarrowShell,
+                                    showGraphPanel:
+                                        selectedNote != null && _showGraphPanel,
+                                    showVaultPanel: _showVaultPanel,
+                                    showWorkspacePanel: _showWorkspacePanel,
+                                    isCreating: _isCreating,
+                                    isRenaming: _isRenaming,
+                                    isSaving: _isSaving,
+                                    isDeleting: _isDeleting,
+                                    isSyncing: _isSyncing,
+                                    selectedNoteIsTrashed:
+                                        _selectedNoteIsTrashed,
+                                    onCreate: _createNote,
+                                    onRename: _renameSelectedNote,
+                                    onSave: _saveSelectedNote,
+                                    onDeleteOrRestore: _selectedNoteIsTrashed
+                                        ? _restoreSelectedNote
+                                        : _deleteSelectedNote,
+                                    onToggleGraphPanel: () async {
+                                      setState(() {
+                                        _showGraphPanel = !_showGraphPanel;
+                                      });
+                                      await _persistState();
+                                    },
+                                    onToggleVaultPanel: () async {
+                                      setState(() {
+                                        _showVaultPanel = !_showVaultPanel;
+                                      });
+                                      await _persistState();
+                                    },
+                                    onToggleWorkspacePanel: () async {
+                                      setState(() {
+                                        _showWorkspacePanel =
+                                            !_showWorkspacePanel;
+                                      });
+                                      await _persistState();
+                                    },
+                                    onOpenCommandPalette: _openCommandPalette,
+                                    onOpenSearch: _openSearchContext,
+                                    onSync: () => _syncVault(),
+                                  );
 
                                   if (isNarrowShell) {
                                     final tabChildren = <Widget>[
                                       notesPane,
                                       editorPane,
-                                      if (_showWorkspacePanel) settingsPane,
+                                      if ((selectedNote != null &&
+                                              _showGraphPanel) ||
+                                          _showVaultPanel ||
+                                          _showWorkspacePanel)
+                                        utilityPane,
                                     ];
-                                    return DefaultTabController(
-                                      length: tabChildren.length,
-                                      child: Column(
-                                        children: [
-                                          TabBar(
-                                            tabs: [
-                                              const Tab(text: 'Notes'),
-                                              const Tab(text: 'Editor'),
-                                              if (_showWorkspacePanel)
-                                                const Tab(text: 'Settings'),
-                                            ],
-                                          ),
-                                          Expanded(
-                                            child: TabBarView(
-                                                children: tabChildren),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  }
-
-                                  final isCompact = constraints.maxWidth < 1100;
-                                  if (isCompact) {
                                     return Column(
                                       children: [
-                                        Expanded(child: notesPane),
-                                        const Divider(height: 1),
-                                        Expanded(child: editorPane),
-                                        if (_showWorkspacePanel) ...[
-                                          const Divider(height: 1),
-                                          SizedBox(
-                                            height: 320,
-                                            child: settingsPane,
+                                        Padding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                            12,
+                                            8,
+                                            12,
+                                            0,
                                           ),
-                                        ],
+                                          child: SizedBox(
+                                            height: 56,
+                                            child: actionRail,
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: DefaultTabController(
+                                            length: tabChildren.length,
+                                            child: Column(
+                                              children: [
+                                                TabBar(
+                                                  tabs: [
+                                                    const Tab(
+                                                      text: 'Notes',
+                                                    ),
+                                                    const Tab(
+                                                      text: 'Editor',
+                                                    ),
+                                                    if ((selectedNote != null &&
+                                                            _showGraphPanel) ||
+                                                        _showVaultPanel ||
+                                                        _showWorkspacePanel)
+                                                      const Tab(
+                                                        text: 'Utilities',
+                                                      ),
+                                                  ],
+                                                ),
+                                                Expanded(
+                                                  child: TabBarView(
+                                                    children: tabChildren,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
                                       ],
                                     );
                                   }
 
                                   return Row(
                                     children: [
-                                      SizedBox(width: 320, child: notesPane),
-                                      Expanded(child: editorPane),
-                                      if (_showWorkspacePanel)
+                                      SizedBox(
+                                        width: 72,
+                                        child: actionRail,
+                                      ),
+                                      if ((selectedNote != null &&
+                                              _showGraphPanel) ||
+                                          _showVaultPanel ||
+                                          _showWorkspacePanel)
                                         SizedBox(
-                                            width: 320, child: settingsPane),
+                                          width: 332,
+                                          child: utilityPane,
+                                        ),
+                                      SizedBox(
+                                        width: 280,
+                                        child: notesPane,
+                                      ),
+                                      Expanded(child: editorPane),
                                     ],
                                   );
                                 },
@@ -2016,25 +2240,108 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                           ],
                         );
 
-                        if (isNarrowShell) {
-                          final sidebarHeight = min(
-                            420.0,
-                            max(280.0, shellConstraints.maxHeight * 0.38),
-                          );
-                          return Column(
-                            children: [
-                              SizedBox(
-                                  height: sidebarHeight, child: sidebarPane),
-                              const Divider(height: 1),
-                              Expanded(child: workspacePane),
-                            ],
-                          );
-                        }
-
-                        return Row(
+                        return Stack(
                           children: [
-                            SizedBox(width: 280, child: sidebarPane),
-                            Expanded(child: workspacePane),
+                            Column(
+                              children: [
+                                Expanded(child: workspacePane),
+                                _BottomStatusBar(
+                                  statusLabel: statusLabel,
+                                  hasActiveSession: _session != null,
+                                  syncSummary: _syncStateSummary(),
+                                ),
+                              ],
+                            ),
+                            if (Platform.isWindows)
+                              Positioned(
+                                left: 0,
+                                top: 0,
+                                child: _ResizeGrip(
+                                  direction: 'topLeft',
+                                  cursor:
+                                      SystemMouseCursors.resizeUpLeftDownRight,
+                                  onResize: _startWindowResize,
+                                ),
+                              ),
+                            if (Platform.isWindows)
+                              Positioned(
+                                right: 0,
+                                top: 0,
+                                child: _ResizeGrip(
+                                  direction: 'topRight',
+                                  cursor:
+                                      SystemMouseCursors.resizeUpRightDownLeft,
+                                  onResize: _startWindowResize,
+                                ),
+                              ),
+                            if (Platform.isWindows)
+                              Positioned(
+                                left: 0,
+                                bottom: 0,
+                                child: _ResizeGrip(
+                                  direction: 'bottomLeft',
+                                  cursor:
+                                      SystemMouseCursors.resizeUpRightDownLeft,
+                                  onResize: _startWindowResize,
+                                ),
+                              ),
+                            if (Platform.isWindows)
+                              Positioned(
+                                right: 0,
+                                bottom: 0,
+                                child: _ResizeGrip(
+                                  direction: 'bottomRight',
+                                  cursor:
+                                      SystemMouseCursors.resizeUpLeftDownRight,
+                                  onResize: _startWindowResize,
+                                ),
+                              ),
+                            if (Platform.isWindows)
+                              Positioned(
+                                left: 0,
+                                top: 60,
+                                bottom: 28,
+                                child: _ResizeEdge(
+                                  direction: 'left',
+                                  cursor: SystemMouseCursors.resizeLeftRight,
+                                  onResize: _startWindowResize,
+                                ),
+                              ),
+                            if (Platform.isWindows)
+                              Positioned(
+                                right: 0,
+                                top: 60,
+                                bottom: 28,
+                                child: _ResizeEdge(
+                                  direction: 'right',
+                                  cursor: SystemMouseCursors.resizeLeftRight,
+                                  onResize: _startWindowResize,
+                                ),
+                              ),
+                            if (Platform.isWindows)
+                              Positioned(
+                                left: 28,
+                                right: 28,
+                                top: 0,
+                                child: _ResizeEdge(
+                                  direction: 'top',
+                                  cursor: SystemMouseCursors.resizeUpDown,
+                                  onResize: _startWindowResize,
+                                  thickness: 12,
+                                ),
+                              ),
+                            if (Platform.isWindows)
+                              Positioned(
+                                left: 28,
+                                right: 28,
+                                bottom: 0,
+                                child: _ResizeEdge(
+                                  direction: 'bottom',
+                                  cursor: SystemMouseCursors.resizeUpDown,
+                                  onResize: _startWindowResize,
+                                  thickness: 12,
+                                ),
+                              ),
                           ],
                         );
                       },
@@ -2422,11 +2729,225 @@ class _ApprovalCodeEntryDialogState extends State<_ApprovalCodeEntryDialog> {
   }
 }
 
-class _TopBar extends StatelessWidget {
-  const _TopBar({
+class _WindowChrome extends StatelessWidget {
+  const _WindowChrome({
     required this.compact,
+    required this.showWindowControls,
+    required this.isWindowMaximized,
+    required this.onStartDrag,
+    required this.onMinimize,
+    required this.onMaximizeOrRestore,
+    required this.onClose,
+  });
+
+  final bool compact;
+  final bool showWindowControls;
+  final bool isWindowMaximized;
+  final VoidCallback onStartDrag;
+  final VoidCallback onMinimize;
+  final VoidCallback onMaximizeOrRestore;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      height: compact ? 28 : 34,
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        border: Border(
+          bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onPanStart: (_) => onStartDrag(),
+        onDoubleTap: onMaximizeOrRestore,
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Row(
+            children: [
+              Expanded(
+                child: Align(
+                  alignment: Alignment.center,
+                  child: Container(
+                    width: compact ? 88 : 112,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.outlineVariant.withOpacity(0.75),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+              ),
+              if (showWindowControls)
+                _WindowControls(
+                  isWindowMaximized: isWindowMaximized,
+                  onMinimize: onMinimize,
+                  onMaximizeOrRestore: onMaximizeOrRestore,
+                  onClose: onClose,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _WindowControls extends StatelessWidget {
+  const _WindowControls({
+    required this.isWindowMaximized,
+    required this.onMinimize,
+    required this.onMaximizeOrRestore,
+    required this.onClose,
+  });
+
+  final bool isWindowMaximized;
+  final VoidCallback onMinimize;
+  final VoidCallback onMaximizeOrRestore;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _ChromeControlButton(
+          tooltip: 'Minimize',
+          icon: Icons.minimize_rounded,
+          onPressed: onMinimize,
+        ),
+        const SizedBox(width: 4),
+        _ChromeControlButton(
+          tooltip: isWindowMaximized ? 'Restore' : 'Maximize',
+          icon: isWindowMaximized
+              ? Icons.filter_none_rounded
+              : Icons.crop_square_rounded,
+          onPressed: onMaximizeOrRestore,
+        ),
+        const SizedBox(width: 4),
+        _ChromeControlButton(
+          tooltip: 'Close',
+          icon: Icons.close_rounded,
+          destructive: true,
+          onPressed: onClose,
+        ),
+      ],
+    );
+  }
+}
+
+class _ChromeControlButton extends StatelessWidget {
+  const _ChromeControlButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+    this.destructive = false,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final backgroundColor = destructive
+        ? theme.colorScheme.errorContainer
+        : theme.colorScheme.surfaceContainerHighest;
+    final foregroundColor = destructive
+        ? theme.colorScheme.onErrorContainer
+        : theme.colorScheme.onSurfaceVariant;
+
+    return Tooltip(
+      message: tooltip,
+      child: SizedBox(
+        width: 28,
+        height: 28,
+        child: IconButton(
+          padding: EdgeInsets.zero,
+          style: IconButton.styleFrom(
+            backgroundColor: backgroundColor,
+            foregroundColor: foregroundColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          onPressed: onPressed,
+          icon: Icon(icon, size: 14),
+        ),
+      ),
+    );
+  }
+}
+
+class _BottomStatusBar extends StatelessWidget {
+  const _BottomStatusBar({
+    required this.statusLabel,
+    required this.hasActiveSession,
+    required this.syncSummary,
+  });
+
+  final String statusLabel;
+  final bool hasActiveSession;
+  final String syncSummary;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      height: 26,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        border: Border(
+          top: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            hasActiveSession
+                ? Icons.cloud_done_outlined
+                : Icons.offline_bolt_outlined,
+            size: 14,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              statusLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            syncSummary,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActionRail extends StatelessWidget {
+  const _ActionRail({
+    required this.compact,
+    required this.showGraphPanel,
+    required this.showVaultPanel,
     required this.showWorkspacePanel,
-    required this.searchController,
     required this.isCreating,
     required this.isRenaming,
     required this.isSaving,
@@ -2437,14 +2958,18 @@ class _TopBar extends StatelessWidget {
     required this.onRename,
     required this.onSave,
     required this.onDeleteOrRestore,
+    required this.onToggleGraphPanel,
+    required this.onToggleVaultPanel,
     required this.onToggleWorkspacePanel,
-    required this.onCommandPalette,
+    required this.onOpenCommandPalette,
+    required this.onOpenSearch,
     required this.onSync,
   });
 
   final bool compact;
+  final bool showGraphPanel;
+  final bool showVaultPanel;
   final bool showWorkspacePanel;
-  final TextEditingController searchController;
   final bool isCreating;
   final bool isRenaming;
   final bool isSaving;
@@ -2455,101 +2980,185 @@ class _TopBar extends StatelessWidget {
   final VoidCallback onRename;
   final VoidCallback onSave;
   final VoidCallback onDeleteOrRestore;
+  final VoidCallback onToggleGraphPanel;
+  final VoidCallback onToggleVaultPanel;
   final VoidCallback onToggleWorkspacePanel;
-  final VoidCallback onCommandPalette;
+  final VoidCallback onOpenCommandPalette;
+  final VoidCallback onOpenSearch;
   final VoidCallback onSync;
 
   @override
   Widget build(BuildContext context) {
-    final actionButtons = <Widget>[
-      FilledButton.icon(
+    final theme = Theme.of(context);
+    final children = <Widget>[
+      _ToolbarAction(
+        tooltip: 'Search notes',
+        onPressed: onOpenSearch,
+        icon: Icons.search,
+      ),
+      _ToolbarAction(
+        tooltip: isCreating ? 'Creating note' : 'New note',
         onPressed: isCreating ? null : onCreate,
-        icon: Icon(isCreating ? Icons.sync : Icons.note_add_outlined),
-        label: Text(isCreating ? 'Creating' : 'New note'),
+        icon: isCreating ? Icons.sync : Icons.note_add_outlined,
       ),
-      FilledButton.tonalIcon(
+      _ToolbarAction(
+        tooltip: isRenaming ? 'Renaming note' : 'Rename note',
         onPressed: isRenaming || selectedNoteIsTrashed ? null : onRename,
-        icon: Icon(isRenaming ? Icons.sync : Icons.drive_file_rename_outline),
-        label: Text(isRenaming ? 'Renaming' : 'Rename'),
+        icon: isRenaming ? Icons.sync : Icons.drive_file_rename_outline,
       ),
-      FilledButton.icon(
+      _ToolbarAction(
+        tooltip: isSaving ? 'Saving note' : 'Save note',
         onPressed: isSaving || selectedNoteIsTrashed ? null : onSave,
-        icon: Icon(isSaving ? Icons.sync : Icons.save_outlined),
-        label: Text(isSaving ? 'Saving' : 'Save'),
+        icon: isSaving ? Icons.sync : Icons.save_outlined,
       ),
-      FilledButton.tonalIcon(
+      _ToolbarAction(
+        tooltip: isDeleting
+            ? (selectedNoteIsTrashed ? 'Restoring note' : 'Deleting note')
+            : (selectedNoteIsTrashed ? 'Restore note' : 'Delete note'),
         onPressed: isDeleting ? null : onDeleteOrRestore,
-        icon: Icon(
-          isDeleting
-              ? Icons.sync
-              : (selectedNoteIsTrashed
-                  ? Icons.restore_from_trash_outlined
-                  : Icons.delete_outline),
-        ),
-        label: Text(
-          isDeleting
-              ? (selectedNoteIsTrashed ? 'Restoring' : 'Deleting')
-              : (selectedNoteIsTrashed ? 'Restore' : 'Delete'),
-        ),
+        icon: isDeleting
+            ? Icons.sync
+            : (selectedNoteIsTrashed
+                ? Icons.restore_from_trash_outlined
+                : Icons.delete_outline),
       ),
-      FilledButton.tonalIcon(
-        onPressed: onCommandPalette,
-        icon: const Icon(Icons.keyboard_command_key),
-        label: const Text('Command'),
+      _ToolbarAction(
+        tooltip: 'Command palette',
+        onPressed: onOpenCommandPalette,
+        icon: Icons.keyboard_command_key,
       ),
-      FilledButton.tonalIcon(
+      _ToolbarAction(
+        tooltip: showGraphPanel ? 'Hide graph' : 'Show graph',
+        onPressed: onToggleGraphPanel,
+        icon: showGraphPanel ? Icons.hub_outlined : Icons.hub,
+      ),
+      _ToolbarAction(
+        tooltip: showVaultPanel ? 'Hide vaults' : 'Show vaults',
+        onPressed: onToggleVaultPanel,
+        icon:
+            showVaultPanel ? Icons.folder_open_outlined : Icons.folder_outlined,
+      ),
+      _ToolbarAction(
+        tooltip: showWorkspacePanel ? 'Hide settings' : 'Show settings',
         onPressed: onToggleWorkspacePanel,
-        icon: Icon(
-          showWorkspacePanel
-              ? Icons.chevron_right_outlined
-              : Icons.chevron_left_outlined,
-        ),
-        label: Text(showWorkspacePanel ? 'Hide panel' : 'Show panel'),
+        icon: showWorkspacePanel ? Icons.tune_outlined : Icons.tune,
       ),
-      FilledButton.tonalIcon(
+      _ToolbarAction(
+        tooltip: isSyncing ? 'Syncing now' : 'Sync now',
         onPressed: isSyncing ? null : onSync,
-        icon: Icon(isSyncing ? Icons.sync : Icons.cloud_upload_outlined),
-        label: Text(isSyncing ? 'Syncing' : 'Sync now'),
+        icon: isSyncing ? Icons.sync : Icons.cloud_upload_outlined,
       ),
     ];
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: Color(0xFFD7D0C1))),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        border: Border(
+          right: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 8 : 10,
+        vertical: compact ? 8 : 12,
       ),
       child: compact
-          ? Column(
+          ? ListView(
+              scrollDirection: Axis.horizontal,
               children: [
-                SearchBar(
-                  controller: searchController,
-                  hintText: 'Search notes on this device',
-                  leading: const Icon(Icons.search),
-                ),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: actionButtons,
-                  ),
-                ),
+                for (var index = 0; index < children.length; index++) ...[
+                  children[index],
+                  if (index < children.length - 1) const SizedBox(width: 8),
+                ],
               ],
             )
-          : Row(
+          : Column(
               children: [
-                Expanded(
-                  child: SearchBar(
-                    controller: searchController,
-                    hintText: 'Search notes on this device',
-                    leading: const Icon(Icons.search),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                ..._withHorizontalSpacing(actionButtons, 12),
+                for (var index = 0; index < children.length; index++) ...[
+                  children[index],
+                  if (index < children.length - 1) const SizedBox(height: 10),
+                ],
               ],
             ),
+    );
+  }
+}
+
+class _ResizeEdge extends StatelessWidget {
+  const _ResizeEdge({
+    required this.direction,
+    required this.cursor,
+    required this.onResize,
+    this.thickness = 10,
+  });
+
+  final String direction;
+  final MouseCursor cursor;
+  final ValueChanged<String> onResize;
+  final double thickness;
+
+  @override
+  Widget build(BuildContext context) {
+    final isVertical = direction == 'left' || direction == 'right';
+    return MouseRegion(
+      cursor: cursor,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onPanStart: (_) => onResize(direction),
+        child: SizedBox(
+          width: isVertical ? thickness : null,
+          height: isVertical ? null : thickness,
+        ),
+      ),
+    );
+  }
+}
+
+class _ResizeGrip extends StatelessWidget {
+  const _ResizeGrip({
+    required this.direction,
+    required this.cursor,
+    required this.onResize,
+  });
+
+  final String direction;
+  final MouseCursor cursor;
+  final ValueChanged<String> onResize;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: cursor,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onPanStart: (_) => onResize(direction),
+        child: SizedBox(
+          width: 28,
+          height: 28,
+        ),
+      ),
+    );
+  }
+}
+
+class _ToolbarAction extends StatelessWidget {
+  const _ToolbarAction({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: IconButton.filledTonal(
+        onPressed: onPressed,
+        icon: Icon(icon),
+      ),
     );
   }
 }
@@ -2583,6 +3192,16 @@ class _WorkspaceCommand {
   final IconData icon;
   final Future<void> Function() onSelected;
   final bool enabled;
+}
+
+class _SearchSelection {
+  const _SearchSelection({
+    required this.note,
+    required this.trashed,
+  });
+
+  final VaultNote note;
+  final bool trashed;
 }
 
 class _CommandPaletteDialog extends StatefulWidget {
@@ -2673,6 +3292,199 @@ class _CommandPaletteDialogState extends State<_CommandPaletteDialog> {
   }
 }
 
+class _SearchContextDialog extends StatefulWidget {
+  const _SearchContextDialog({
+    required this.notes,
+    required this.trashedNotes,
+    required this.searchService,
+  });
+
+  final List<VaultNote> notes;
+  final List<VaultNote> trashedNotes;
+  final NoteSearchService searchService;
+
+  @override
+  State<_SearchContextDialog> createState() => _SearchContextDialogState();
+}
+
+class _SearchContextDialogState extends State<_SearchContextDialog> {
+  final TextEditingController _queryController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _queryController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final results = widget.searchService.filterAndRank(
+      notes: widget.notes,
+      query: _query,
+    );
+    final trashResults = widget.searchService.filterAndRank(
+      notes: widget.trashedNotes,
+      query: _query,
+    );
+
+    return AlertDialog(
+      title: const Text('Search notes'),
+      content: SizedBox(
+        width: 640,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _queryController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'Search by title, path, tag, or link',
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _query = value.trim().toLowerCase();
+                });
+              },
+            ),
+            const SizedBox(height: 16),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  if (results.isEmpty && trashResults.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Center(
+                        child: Text('No notes matched this search.'),
+                      ),
+                    ),
+                  if (results.isNotEmpty) ...[
+                    _SearchSectionLabel(label: 'Notes'),
+                    const SizedBox(height: 8),
+                    for (final note in results.take(14)) ...[
+                      _SearchResultTile(
+                        note: note,
+                        onTap: () => Navigator.of(context).pop(
+                          _SearchSelection(note: note, trashed: false),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                  ],
+                  if (trashResults.isNotEmpty) ...[
+                    _SearchSectionLabel(label: 'Trash'),
+                    const SizedBox(height: 8),
+                    for (final note in trashResults.take(8)) ...[
+                      _SearchResultTile(
+                        note: note,
+                        trashed: true,
+                        onTap: () => Navigator.of(context).pop(
+                          _SearchSelection(note: note, trashed: true),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+}
+
+class _SearchSectionLabel extends StatelessWidget {
+  const _SearchSectionLabel({
+    required this.label,
+  });
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+    );
+  }
+}
+
+class _SearchResultTile extends StatelessWidget {
+  const _SearchResultTile({
+    required this.note,
+    required this.onTap,
+    this.trashed = false,
+  });
+
+  final VaultNote note;
+  final VoidCallback onTap;
+  final bool trashed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: trashed
+          ? theme.colorScheme.errorContainer
+          : theme.colorScheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Icon(
+                trashed ? Icons.delete_outline : Icons.description_outlined,
+                size: 18,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      note.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      note.relativePath,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _NotesListPane extends StatelessWidget {
   const _NotesListPane({
     required this.notes,
@@ -2701,7 +3513,7 @@ class _NotesListPane extends StatelessWidget {
     }
 
     return ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       children: [
         for (final note in notes) ...[
           _NoteCard(
@@ -2711,16 +3523,18 @@ class _NotesListPane extends StatelessWidget {
                 !selectedNoteIsTrashed && note.objectId == selectedNoteId,
             onTap: () => onSelect(note),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
         ],
         if (trashedNotes.isNotEmpty) ...[
-          Text(
-            'Trash',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 8, 4, 6),
+            child: Text(
+              'Trash',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
           ),
-          const SizedBox(height: 12),
           for (final note in trashedNotes) ...[
             _NoteCard(
               note: note,
@@ -2730,7 +3544,7 @@ class _NotesListPane extends StatelessWidget {
                   selectedNoteIsTrashed && note.objectId == selectedNoteId,
               onTap: () => onSelectTrash(note),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 6),
           ],
         ],
       ],
@@ -2760,36 +3574,89 @@ class _NoteCard extends StatelessWidget {
         ? (trashed
             ? theme.colorScheme.errorContainer
             : theme.colorScheme.secondaryContainer)
-        : theme.cardTheme.color ?? theme.colorScheme.surface;
+        : theme.colorScheme.surface;
 
-    return Card(
+    return Material(
       color: backgroundColor,
-      child: ListTile(
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
         onTap: onTap,
-        title: Text(note.title),
-        subtitle: Text(
-          '${note.relativePath}\nUpdated ${_formatNoteTimestamp(note.modifiedAt)}',
-        ),
-        isThreeLine: true,
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (trashed)
-              const Icon(Icons.delete_outline, size: 18)
-            else if (note.tags.isNotEmpty)
-              Text(
-                '#${note.tags.first}',
-                style: Theme.of(context).textTheme.bodySmall,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                trashed ? Icons.delete_outline : Icons.description_outlined,
+                size: 18,
+                color: theme.colorScheme.onSurfaceVariant,
               ),
-            Text(
-              trashed
-                  ? 'trashed'
-                  : (backlinksEnabled
-                      ? '${note.backlinks.length} backlinks'
-                      : 'backlinks off'),
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      note.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      note.relativePath,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _formatNoteTimestamp(note.modifiedAt),
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (!trashed && note.tags.isNotEmpty)
+                    Text(
+                      '#${note.tags.first}',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  if (trashed)
+                    Text(
+                      'trashed',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.error,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    )
+                  else
+                    Text(
+                      backlinksEnabled
+                          ? '${note.backlinks.length} links'
+                          : 'links off',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -2839,7 +3706,7 @@ class _EditorPane extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
       decoration: BoxDecoration(
         border: Border(
           left: BorderSide(color: theme.colorScheme.outlineVariant),
@@ -2859,7 +3726,7 @@ class _EditorPane extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(note!.relativePath, style: theme.textTheme.bodySmall),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 if (isTrashed)
                   Text(
                     'This note is in trash and is read-only until restored.',
@@ -2868,10 +3735,10 @@ class _EditorPane extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                  spacing: 6,
+                  runSpacing: 6,
                   children: [
                     for (final tag in note!.tags) Chip(label: Text('#$tag')),
                     for (final link in note!.wikilinks)

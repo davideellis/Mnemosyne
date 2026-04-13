@@ -23,6 +23,8 @@ void main() {
         backlinksEnabled: false,
         graphDepth: 3,
       ),
+      showGraphPanel: true,
+      showVaultPanel: false,
       showWorkspacePanel: false,
       syncCursor: 'cursor-1',
       vaultRootPath: '/tmp/MnemosyneDemoVault',
@@ -54,6 +56,8 @@ void main() {
     expect(restored.settings.autoSyncEnabled, isFalse);
     expect(restored.settings.backlinksEnabled, isFalse);
     expect(restored.settings.graphDepth, 3);
+    expect(restored.showGraphPanel, isTrue);
+    expect(restored.showVaultPanel, isFalse);
     expect(restored.showWorkspacePanel, isFalse);
     expect(restored.syncCursor, state.syncCursor);
     expect(restored.vaultRootPath, state.vaultRootPath);

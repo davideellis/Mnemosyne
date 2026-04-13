@@ -16,7 +16,9 @@ class PersistedAppState {
     this.lastNoteFolder,
     this.session,
     this.settings = const WorkspaceSettings(),
-    this.showWorkspacePanel = true,
+    this.showGraphPanel = true,
+    this.showVaultPanel = false,
+    this.showWorkspacePanel = false,
     this.syncCursor,
     this.vaultRootPath,
   });
@@ -29,6 +31,8 @@ class PersistedAppState {
   final String? lastNoteFolder;
   final SyncSession? session;
   final WorkspaceSettings settings;
+  final bool showGraphPanel;
+  final bool showVaultPanel;
   final bool showWorkspacePanel;
   final String? syncCursor;
   final String? vaultRootPath;
@@ -43,6 +47,8 @@ class PersistedAppState {
       'knownTrashDigests': knownTrashDigests,
       'lastNoteFolder': lastNoteFolder,
       'settings': settings.toJson(),
+      'showGraphPanel': showGraphPanel,
+      'showVaultPanel': showVaultPanel,
       'showWorkspacePanel': showWorkspacePanel,
       'syncCursor': syncCursor,
       'vaultRootPath': vaultRootPath,
@@ -88,7 +94,9 @@ class PersistedAppState {
         (json['settings'] as Map<String, dynamic>?) ??
             const <String, dynamic>{},
       ),
-      showWorkspacePanel: json['showWorkspacePanel'] as bool? ?? true,
+      showGraphPanel: json['showGraphPanel'] as bool? ?? true,
+      showVaultPanel: json['showVaultPanel'] as bool? ?? false,
+      showWorkspacePanel: json['showWorkspacePanel'] as bool? ?? false,
       syncCursor: json['syncCursor'] as String?,
       vaultRootPath: json['vaultRootPath'] as String?,
       session: sessionJson == null

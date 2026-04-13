@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
-class MarkdownEditorPane extends StatelessWidget {
+class MarkdownEditorPane extends StatefulWidget {
   const MarkdownEditorPane({
     super.key,
     required this.controller,
@@ -12,6 +12,43 @@ class MarkdownEditorPane extends StatelessWidget {
   final TextEditingController controller;
   final bool isReadOnly;
   final ValueChanged<String> onOpenInternalLink;
+
+  @override
+  State<MarkdownEditorPane> createState() => _MarkdownEditorPaneState();
+
+  static String renderableMarkdownForPreview(String markdown) {
+    return markdown.replaceAllMapped(
+      RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]'),
+      (match) {
+        final target = match.group(1)?.trim() ?? '';
+        if (target.isEmpty) {
+          return match.group(0) ?? '';
+        }
+        final label = (match.group(2)?.trim().isNotEmpty ?? false)
+            ? match.group(2)!.trim()
+            : target;
+        final encodedTarget = Uri.encodeComponent(target);
+        return '[$label](mnemosyne://note/$encodedTarget)';
+      },
+    );
+  }
+}
+
+class _MarkdownEditorPaneState extends State<MarkdownEditorPane>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this, initialIndex: 0);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,84 +88,68 @@ class MarkdownEditorPane extends StatelessWidget {
       ),
     );
 
-    return DefaultTabController(
-      length: 2,
-      child: Column(
-        children: [
-          const TabBar(
-            tabs: [
-              Tab(text: 'Edit'),
-              Tab(text: 'Preview'),
+    return Column(
+      children: [
+        TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'Preview'),
+            Tab(text: 'Edit'),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: theme.colorScheme.outlineVariant,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: ListenableBuilder(
+                  listenable: widget.controller,
+                  builder: (context, _) {
+                    return Markdown(
+                      data: widget.controller.text.isEmpty
+                          ? '_Nothing to preview yet._'
+                          : MarkdownEditorPane.renderableMarkdownForPreview(
+                              widget.controller.text,
+                            ),
+                      selectable: true,
+                      padding: const EdgeInsets.all(16),
+                      styleSheet: markdownStyle,
+                      onTapLink: (text, href, title) {
+                        if (href == null ||
+                            !href.startsWith('mnemosyne://note/')) {
+                          return;
+                        }
+                        final target = Uri.decodeComponent(
+                          href.substring('mnemosyne://note/'.length),
+                        );
+                        widget.onOpenInternalLink(target);
+                      },
+                    );
+                  },
+                ),
+              ),
+              TextField(
+                controller: widget.controller,
+                readOnly: widget.isReadOnly,
+                expands: true,
+                maxLines: null,
+                minLines: null,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: 'Write Markdown here...',
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: TabBarView(
-              children: [
-                TextField(
-                  controller: controller,
-                  readOnly: isReadOnly,
-                  expands: true,
-                  maxLines: null,
-                  minLines: null,
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    hintText: 'Write Markdown here...',
-                  ),
-                ),
-                Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: theme.colorScheme.outlineVariant,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: ListenableBuilder(
-                    listenable: controller,
-                    builder: (context, _) {
-                      return Markdown(
-                        data: controller.text.isEmpty
-                            ? '_Nothing to preview yet._'
-                            : renderableMarkdownForPreview(controller.text),
-                        selectable: true,
-                        padding: const EdgeInsets.all(16),
-                        styleSheet: markdownStyle,
-                        onTapLink: (text, href, title) {
-                          if (href == null ||
-                              !href.startsWith('mnemosyne://note/')) {
-                            return;
-                          }
-                          final target = Uri.decodeComponent(
-                            href.substring('mnemosyne://note/'.length),
-                          );
-                          onOpenInternalLink(target);
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  static String renderableMarkdownForPreview(String markdown) {
-    return markdown.replaceAllMapped(
-      RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]'),
-      (match) {
-        final target = match.group(1)?.trim() ?? '';
-        if (target.isEmpty) {
-          return match.group(0) ?? '';
-        }
-        final label = (match.group(2)?.trim().isNotEmpty ?? false)
-            ? match.group(2)!.trim()
-            : target;
-        final encodedTarget = Uri.encodeComponent(target);
-        return '[$label](mnemosyne://note/$encodedTarget)';
-      },
+        ),
+      ],
     );
   }
 }

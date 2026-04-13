@@ -2,6 +2,7 @@
 
 #include <dwmapi.h>
 #include <flutter_windows.h>
+#include <windowsx.h>
 
 #include "resource.h"
 
@@ -15,6 +16,9 @@ namespace {
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
+#ifndef DWMWA_WINDOW_CORNER_PREFERENCE
+#define DWMWA_WINDOW_CORNER_PREFERENCE 33
+#endif
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
@@ -25,6 +29,10 @@ constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
   L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
 constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
+constexpr int kResizeBorderThickness = 14;
+constexpr int kDragCaptionHeight = 56;
+constexpr int kDragCaptionRightInset = 220;
+constexpr int kRoundedCornerPreference = 2;
 
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
@@ -135,7 +143,8 @@ bool Win32Window::Create(const std::wstring& title,
   double scale_factor = dpi / 96.0;
 
   HWND window = CreateWindow(
-      window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
+      window_class, title.c_str(),
+      WS_POPUP | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU,
       Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
       Scale(size.width, scale_factor), Scale(size.height, scale_factor),
       nullptr, nullptr, GetModuleHandle(nullptr), this);
@@ -179,6 +188,57 @@ Win32Window::MessageHandler(HWND hwnd,
                             WPARAM const wparam,
                             LPARAM const lparam) noexcept {
   switch (message) {
+    case WM_NCCALCSIZE:
+      return 0;
+
+    case WM_NCHITTEST: {
+      const POINT cursor_point = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+      RECT window_rect;
+      GetWindowRect(hwnd, &window_rect);
+
+      const bool on_left = cursor_point.x >= window_rect.left &&
+                           cursor_point.x < window_rect.left + kResizeBorderThickness;
+      const bool on_right = cursor_point.x < window_rect.right &&
+                            cursor_point.x >= window_rect.right - kResizeBorderThickness;
+      const bool on_top = cursor_point.y >= window_rect.top &&
+                          cursor_point.y < window_rect.top + kResizeBorderThickness;
+      const bool on_bottom = cursor_point.y < window_rect.bottom &&
+                             cursor_point.y >= window_rect.bottom - kResizeBorderThickness;
+
+      if (on_top && on_left) {
+        return HTTOPLEFT;
+      }
+      if (on_top && on_right) {
+        return HTTOPRIGHT;
+      }
+      if (on_bottom && on_left) {
+        return HTBOTTOMLEFT;
+      }
+      if (on_bottom && on_right) {
+        return HTBOTTOMRIGHT;
+      }
+      if (on_left) {
+        return HTLEFT;
+      }
+      if (on_right) {
+        return HTRIGHT;
+      }
+      if (on_top) {
+        return HTTOP;
+      }
+      if (on_bottom) {
+        return HTBOTTOM;
+      }
+
+      const int local_x = cursor_point.x - window_rect.left;
+      const int local_y = cursor_point.y - window_rect.top;
+      if (local_y >= 0 && local_y <= kDragCaptionHeight &&
+          local_x < (window_rect.right - window_rect.left) - kDragCaptionRightInset) {
+        return HTCAPTION;
+      }
+      return HTCLIENT;
+    }
+
     case WM_DESTROY:
       window_handle_ = nullptr;
       Destroy();
@@ -285,4 +345,8 @@ void Win32Window::UpdateTheme(HWND const window) {
     DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
                           &enable_dark_mode, sizeof(enable_dark_mode));
   }
+
+  const int corner_preference = kRoundedCornerPreference;
+  DwmSetWindowAttribute(window, DWMWA_WINDOW_CORNER_PREFERENCE,
+                        &corner_preference, sizeof(corner_preference));
 }

@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:mnemosyne/src/features/notes/markdown_editor_pane.dart';
 
 void main() {
-  testWidgets('switches between edit and preview with live markdown text',
+  testWidgets('defaults to preview and keeps edit as the second tab',
       (tester) async {
     final controller = TextEditingController(text: '# Preview Title');
     addTearDown(controller.dispose);
@@ -26,16 +27,19 @@ void main() {
 
     expect(find.text('Edit'), findsOneWidget);
     expect(find.text('Preview'), findsOneWidget);
-    expect(find.byType(TextField), findsOneWidget);
+    expect(find.byType(Markdown), findsOneWidget);
+    expect(find.text('Preview Title'), findsOneWidget);
 
-    await tester.tap(find.text('Preview'));
+    await tester.tap(find.text('Edit'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Preview Title'), findsOneWidget);
+    expect(find.byType(Markdown), findsNothing);
+    expect(find.byType(TextField), findsOneWidget);
 
     controller.text = '# Updated Title';
     await tester.pumpAndSettle();
-
+    await tester.tap(find.text('Preview'));
+    await tester.pumpAndSettle();
     expect(find.text('Updated Title'), findsOneWidget);
   });
 
@@ -59,9 +63,6 @@ void main() {
         ),
       ),
     );
-
-    await tester.tap(find.text('Preview'));
-    await tester.pumpAndSettle();
 
     expect(find.text('Nothing to preview yet.'), findsOneWidget);
   });
