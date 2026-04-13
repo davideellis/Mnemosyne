@@ -123,6 +123,19 @@ Current local setup:
 - live full smoke passes when the local `MNEMOSYNE_TST_*` environment variables are present
 - the credentials are intentionally machine-local and are not stored in the public repository
 
+To point the local desktop app at the live test stack on this workstation:
+
+```powershell
+.\scripts\configure-local-tst-client.ps1
+```
+
+That script:
+
+- resolves the live `tst` API base URL from CloudFormation
+- writes it to user-scoped sync environment variables
+- updates the local app state file with the `tst` endpoint and test email
+- keeps the credentials machine-local instead of committing them to the repo
+
 ## Backup And Restore
 
 Export a backup:

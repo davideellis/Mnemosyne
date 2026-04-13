@@ -29,6 +29,30 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   static const MethodChannel _windowChannel = MethodChannel(
     'mnemosyne/window',
   );
+  static const String _defaultLocalApiBaseUrl = 'http://127.0.0.1:8080';
+  static const String _defaultDemoEmail = 'demo@mnemosyne.local';
+  static const String _defaultDemoPassword = 'demo-password';
+  static final String _defaultSyncApiBaseUrl = _readEnvironmentValue(
+        const <String>[
+          'MNEMOSYNE_SYNC_API_URL',
+          'MNEMOSYNE_TST_API_BASE_URL',
+        ],
+      ) ??
+      _defaultLocalApiBaseUrl;
+  static final String _defaultSyncEmail = _readEnvironmentValue(
+        const <String>[
+          'MNEMOSYNE_SYNC_EMAIL',
+          'MNEMOSYNE_TST_EMAIL',
+        ],
+      ) ??
+      _defaultDemoEmail;
+  static final String _defaultSyncPassword = _readEnvironmentValue(
+        const <String>[
+          'MNEMOSYNE_SYNC_PASSWORD',
+          'MNEMOSYNE_TST_PASSWORD',
+        ],
+      ) ??
+      _defaultDemoPassword;
 
   final LocalVaultRepository _repository = LocalVaultRepository();
   final AppStateRepository _appStateRepository = AppStateRepository();
@@ -38,12 +62,12 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _editorController = TextEditingController();
   final TextEditingController _apiBaseUrlController =
-      TextEditingController(text: 'http://127.0.0.1:8080');
+      TextEditingController(text: _defaultSyncApiBaseUrl);
   final TextEditingController _vaultPathController = TextEditingController();
   final TextEditingController _emailController =
-      TextEditingController(text: 'demo@mnemosyne.local');
+      TextEditingController(text: _defaultSyncEmail);
   final TextEditingController _passwordController =
-      TextEditingController(text: 'demo-password');
+      TextEditingController(text: _defaultSyncPassword);
   StreamSubscription<VaultSnapshot>? _vaultWatchSubscription;
   Timer? _autoSyncTimer;
 
@@ -129,9 +153,10 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       _showWorkspacePanel = persistedState.showWorkspacePanel;
       _syncCursor = persistedState.syncCursor ?? '';
       _apiBaseUrlController.text =
-          persistedState.apiBaseUrl ?? _apiBaseUrlController.text;
+          _initialApiBaseUrl(persistedState.apiBaseUrl);
       _vaultPathController.text = snapshot.rootPath;
-      _emailController.text = persistedState.email ?? _emailController.text;
+      _emailController.text = _initialEmail(persistedState.email);
+      _passwordController.text = _initialPassword();
       _isLoading = false;
       _statusLabel = hydratedSession == null ? 'Loaded locally' : 'Signed in';
       _syncMessage = hydratedSession == null
@@ -1023,6 +1048,36 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       throw Exception('Enter a valid sync API URL.');
     }
     return parsed;
+  }
+
+  String _initialApiBaseUrl(String? persistedValue) {
+    if (persistedValue == null || persistedValue.trim().isEmpty) {
+      return _defaultSyncApiBaseUrl;
+    }
+    if (persistedValue.trim() == _defaultLocalApiBaseUrl &&
+        _defaultSyncApiBaseUrl != _defaultLocalApiBaseUrl) {
+      return _defaultSyncApiBaseUrl;
+    }
+    return persistedValue;
+  }
+
+  String _initialEmail(String? persistedValue) {
+    if (persistedValue == null || persistedValue.trim().isEmpty) {
+      return _defaultSyncEmail;
+    }
+    if (persistedValue.trim() == _defaultDemoEmail &&
+        _defaultSyncEmail != _defaultDemoEmail) {
+      return _defaultSyncEmail;
+    }
+    return persistedValue;
+  }
+
+  String _initialPassword() {
+    final currentValue = _passwordController.text.trim();
+    if (currentValue.isEmpty || currentValue == _defaultDemoPassword) {
+      return _defaultSyncPassword;
+    }
+    return currentValue;
   }
 
   String _generateRecoveryKey() {
@@ -2729,6 +2784,16 @@ class _ApprovalCodeEntryDialogState extends State<_ApprovalCodeEntryDialog> {
   }
 }
 
+String? _readEnvironmentValue(List<String> keys) {
+  for (final key in keys) {
+    final value = Platform.environment[key];
+    if (value != null && value.trim().isNotEmpty) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
 class _WindowChrome extends StatelessWidget {
   const _WindowChrome({
     required this.compact,
@@ -2775,7 +2840,9 @@ class _WindowChrome extends StatelessWidget {
                     width: compact ? 88 : 112,
                     height: 6,
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.outlineVariant.withOpacity(0.75),
+                      color: theme.colorScheme.outlineVariant.withValues(
+                        alpha: 0.75,
+                      ),
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),
@@ -3161,21 +3228,6 @@ class _ToolbarAction extends StatelessWidget {
       ),
     );
   }
-}
-
-List<Widget> _withHorizontalSpacing(List<Widget> children, double spacing) {
-  if (children.isEmpty) {
-    return const <Widget>[];
-  }
-
-  final widgets = <Widget>[];
-  for (var index = 0; index < children.length; index++) {
-    if (index > 0) {
-      widgets.add(SizedBox(width: spacing));
-    }
-    widgets.add(children[index]);
-  }
-  return widgets;
 }
 
 class _WorkspaceCommand {
