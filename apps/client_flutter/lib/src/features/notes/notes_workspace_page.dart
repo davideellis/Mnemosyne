@@ -1575,6 +1575,157 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     );
   }
 
+  Widget _buildSidebarPane({
+    required ThemeData theme,
+    required VaultSnapshot? snapshot,
+    required List<VaultNote> selectedTrashedNotes,
+    required List<String> selectedFolders,
+    required VaultNote? selectedNote,
+    required String statusLabel,
+  }) {
+    return Container(
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Text(
+            'Mnemosyne',
+            style: theme.textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          StatusChip(label: statusLabel),
+          const SizedBox(height: 20),
+          Text(
+            'Vault',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(snapshot?.rootPath ?? ''),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _vaultPathController,
+            decoration: const InputDecoration(
+              labelText: 'Vault path',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.tonalIcon(
+            onPressed: _openVaultFromInput,
+            icon: const Icon(Icons.folder_open),
+            label: const Text('Open vault'),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Folders',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            selected: _selectedFolderFilter == null,
+            leading: const Icon(Icons.notes_outlined),
+            title: const Text('All notes'),
+            trailing: Text(
+              '${_countNotesInFolder(snapshot?.notes ?? const <VaultNote>[], null)}',
+            ),
+            onTap: () {
+              setState(() {
+                _selectedFolderFilter = null;
+              });
+            },
+          ),
+          for (final folder in selectedFolders)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              selected: _selectedFolderFilter == folder,
+              title: Text(folder),
+              leading: const Icon(Icons.folder_open_outlined),
+              trailing: Text(
+                '${_countNotesInFolder(snapshot?.notes ?? const <VaultNote>[], folder)}',
+              ),
+              onTap: () {
+                setState(() {
+                  _selectedFolderFilter = folder;
+                });
+              },
+            ),
+          if (selectedTrashedNotes.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Trash',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final note in selectedTrashedNotes)
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: Text(note.title),
+                subtitle: Text(note.relativePath),
+                leading: const Icon(Icons.delete_outline),
+                selected: _selectedNoteIsTrashed &&
+                    selectedNote?.objectId == note.objectId,
+                onTap: () => _selectTrashedNote(note),
+              ),
+          ],
+          const SizedBox(height: 12),
+          OnboardingCard(
+            apiBaseUrlController: _apiBaseUrlController,
+            emailController: _emailController,
+            passwordController: _passwordController,
+            session: _session,
+            syncMessage: _syncMessage,
+            isAuthenticating: _isAuthenticating,
+            onBootstrap: _bootstrapAccount,
+            onLogin: _login,
+            onRecover: _recover,
+            onConsumeApproval: _consumeDeviceApproval,
+            onStartApproval: _startDeviceApproval,
+            onSignOut: _signOut,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSettingsPane({
+    required VaultSnapshot? snapshot,
+    required VaultNote? selectedNote,
+    required int pendingSyncChanges,
+  }) {
+    return SettingsPanel(
+      note: selectedNote,
+      noteIsTrashed: _selectedNoteIsTrashed,
+      notes: snapshot?.notes ?? const <VaultNote>[],
+      trashedNotes: snapshot?.trashedNotes ?? const <VaultNote>[],
+      noteCount: snapshot?.notes.length ?? 0,
+      settings: _settings,
+      syncStatus: _syncStateSummary(),
+      pendingSyncChanges: pendingSyncChanges,
+      lastSyncAttempt: _formatTimestamp(_lastSyncAttemptAt),
+      lastSyncSuccess: _formatTimestamp(_lastSyncSuccessAt),
+      lastSyncError: _lastSyncError,
+      nextAutoSyncAttempt: _formatNextAutoSyncAttempt(),
+      sessionExpiresAt: _session?.sessionExpiresAt,
+      devices: _registeredDevices,
+      currentDeviceName: _currentDeviceName(),
+      currentPlatform: Platform.operatingSystem,
+      onSettingsChanged: _updateSettings,
+      onRevokeDevice: _revokeDevice,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = _workspaceTheme(context);
@@ -1646,245 +1797,141 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
             body: SafeArea(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
-                  : Row(
-                      children: [
-                        Container(
-                          width: 280,
-                          padding: const EdgeInsets.all(20),
-                          color: theme.colorScheme.surfaceContainerHighest,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Mnemosyne',
-                                style: theme.textTheme.headlineMedium?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              StatusChip(label: statusLabel),
-                              const SizedBox(height: 20),
-                              Text(
-                                'Vault',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(snapshot?.rootPath ?? ''),
-                              const SizedBox(height: 12),
-                              TextField(
-                                controller: _vaultPathController,
-                                decoration: const InputDecoration(
-                                  labelText: 'Vault path',
-                                  border: OutlineInputBorder(),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              FilledButton.tonalIcon(
-                                onPressed: _openVaultFromInput,
-                                icon: const Icon(Icons.folder_open),
-                                label: const Text('Open vault'),
-                              ),
-                              const SizedBox(height: 20),
-                              Text(
-                                'Folders',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Expanded(
-                                child: ListView(
-                                  children: [
-                                    ListTile(
-                                      dense: true,
-                                      contentPadding: EdgeInsets.zero,
-                                      selected: _selectedFolderFilter == null,
-                                      leading: const Icon(Icons.notes_outlined),
-                                      title: const Text('All notes'),
-                                      trailing: Text(
-                                        '${_countNotesInFolder(snapshot?.notes ?? const <VaultNote>[], null)}',
-                                      ),
-                                      onTap: () {
-                                        setState(() {
-                                          _selectedFolderFilter = null;
-                                        });
-                                      },
-                                    ),
-                                    for (final folder in selectedFolders)
-                                      ListTile(
-                                        dense: true,
-                                        contentPadding: EdgeInsets.zero,
-                                        selected:
-                                            _selectedFolderFilter == folder,
-                                        title: Text(folder),
-                                        leading: const Icon(
-                                          Icons.folder_open_outlined,
-                                        ),
-                                        trailing: Text(
-                                          '${_countNotesInFolder(snapshot?.notes ?? const <VaultNote>[], folder)}',
-                                        ),
-                                        onTap: () {
-                                          setState(() {
-                                            _selectedFolderFilter = folder;
-                                          });
-                                        },
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              if (trashedNotes.isNotEmpty) ...[
-                                const SizedBox(height: 12),
-                                Text(
-                                  'Trash',
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                SizedBox(
-                                  height: 140,
-                                  child: ListView(
-                                    children: [
-                                      for (final note in trashedNotes)
-                                        ListTile(
-                                          dense: true,
-                                          contentPadding: EdgeInsets.zero,
-                                          title: Text(note.title),
-                                          subtitle: Text(note.relativePath),
-                                          leading:
-                                              const Icon(Icons.delete_outline),
-                                          selected: _selectedNoteIsTrashed &&
-                                              selectedNote?.objectId ==
-                                                  note.objectId,
-                                          onTap: () => _selectTrashedNote(note),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 12),
-                              OnboardingCard(
-                                apiBaseUrlController: _apiBaseUrlController,
-                                emailController: _emailController,
-                                passwordController: _passwordController,
-                                session: _session,
-                                syncMessage: _syncMessage,
-                                isAuthenticating: _isAuthenticating,
-                                onBootstrap: _bootstrapAccount,
-                                onLogin: _login,
-                                onRecover: _recover,
-                                onConsumeApproval: _consumeDeviceApproval,
-                                onStartApproval: _startDeviceApproval,
-                                onSignOut: _signOut,
-                              ),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          child: Column(
-                            children: [
-                              _TopBar(
-                                searchController: _searchController,
-                                isCreating: _isCreating,
-                                isRenaming: _isRenaming,
-                                isSaving: _isSaving,
-                                isDeleting: _isDeleting,
-                                isSyncing: _isSyncing,
-                                selectedNoteIsTrashed: _selectedNoteIsTrashed,
-                                onCreate: _createNote,
-                                onRename: _renameSelectedNote,
-                                onSave: _saveSelectedNote,
-                                onDeleteOrRestore: _selectedNoteIsTrashed
-                                    ? _restoreSelectedNote
-                                    : _deleteSelectedNote,
-                                onCommandPalette: _openCommandPalette,
-                                onSync: () => _syncVault(),
-                              ),
-                              Expanded(
-                                child: LayoutBuilder(
-                                  builder: (context, constraints) {
-                                    final isCompact =
-                                        constraints.maxWidth < 1100;
-                                    final notesPane = _NotesListPane(
-                                      notes: notes,
-                                      trashedNotes: trashedNotes,
-                                      selectedNoteId: selectedNote?.objectId,
-                                      selectedNoteIsTrashed:
-                                          _selectedNoteIsTrashed,
-                                      backlinksEnabled:
-                                          _settings.backlinksEnabled,
-                                      onSelect: _selectNote,
-                                      onSelectTrash: _selectTrashedNote,
-                                    );
-                                    final editorPane = _EditorPane(
-                                      note: selectedNote,
-                                      isTrashed: _selectedNoteIsTrashed,
-                                      backlinksEnabled:
-                                          _settings.backlinksEnabled,
-                                      controller: _editorController,
-                                      onOpenLinkedNote: _openLinkedNote,
-                                    );
+                  : LayoutBuilder(
+                      builder: (context, shellConstraints) {
+                        final isNarrowShell = shellConstraints.maxWidth < 1200;
+                        final sidebarPane = _buildSidebarPane(
+                          theme: theme,
+                          snapshot: snapshot,
+                          selectedTrashedNotes: trashedNotes,
+                          selectedFolders: selectedFolders,
+                          selectedNote: selectedNote,
+                          statusLabel: statusLabel,
+                        );
+                        final settingsPane = _buildSettingsPane(
+                          snapshot: snapshot,
+                          selectedNote: selectedNote,
+                          pendingSyncChanges: pendingSyncChanges,
+                        );
 
-                                    if (isCompact) {
-                                      return Column(
+                        final workspacePane = Column(
+                          children: [
+                            _TopBar(
+                              compact: isNarrowShell,
+                              searchController: _searchController,
+                              isCreating: _isCreating,
+                              isRenaming: _isRenaming,
+                              isSaving: _isSaving,
+                              isDeleting: _isDeleting,
+                              isSyncing: _isSyncing,
+                              selectedNoteIsTrashed: _selectedNoteIsTrashed,
+                              onCreate: _createNote,
+                              onRename: _renameSelectedNote,
+                              onSave: _saveSelectedNote,
+                              onDeleteOrRestore: _selectedNoteIsTrashed
+                                  ? _restoreSelectedNote
+                                  : _deleteSelectedNote,
+                              onCommandPalette: _openCommandPalette,
+                              onSync: () => _syncVault(),
+                            ),
+                            Expanded(
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final notesPane = _NotesListPane(
+                                    notes: notes,
+                                    trashedNotes: trashedNotes,
+                                    selectedNoteId: selectedNote?.objectId,
+                                    selectedNoteIsTrashed:
+                                        _selectedNoteIsTrashed,
+                                    backlinksEnabled:
+                                        _settings.backlinksEnabled,
+                                    onSelect: _selectNote,
+                                    onSelectTrash: _selectTrashedNote,
+                                  );
+                                  final editorPane = _EditorPane(
+                                    note: selectedNote,
+                                    isTrashed: _selectedNoteIsTrashed,
+                                    backlinksEnabled:
+                                        _settings.backlinksEnabled,
+                                    controller: _editorController,
+                                    onOpenLinkedNote: _openLinkedNote,
+                                  );
+
+                                  if (isNarrowShell) {
+                                    return DefaultTabController(
+                                      length: 3,
+                                      child: Column(
                                         children: [
-                                          Expanded(child: notesPane),
-                                          const Divider(height: 1),
-                                          Expanded(child: editorPane),
-                                        ],
-                                      );
-                                    }
-
-                                    return Row(
-                                      children: [
-                                        SizedBox(width: 320, child: notesPane),
-                                        Expanded(child: editorPane),
-                                        SizedBox(
-                                          width: 320,
-                                          child: SettingsPanel(
-                                            note: selectedNote,
-                                            noteIsTrashed:
-                                                _selectedNoteIsTrashed,
-                                            notes: snapshot?.notes ??
-                                                const <VaultNote>[],
-                                            trashedNotes:
-                                                snapshot?.trashedNotes ??
-                                                    const <VaultNote>[],
-                                            noteCount:
-                                                snapshot?.notes.length ?? 0,
-                                            settings: _settings,
-                                            syncStatus: _syncStateSummary(),
-                                            pendingSyncChanges:
-                                                pendingSyncChanges,
-                                            lastSyncAttempt: _formatTimestamp(
-                                                _lastSyncAttemptAt),
-                                            lastSyncSuccess: _formatTimestamp(
-                                                _lastSyncSuccessAt),
-                                            lastSyncError: _lastSyncError,
-                                            nextAutoSyncAttempt:
-                                                _formatNextAutoSyncAttempt(),
-                                            sessionExpiresAt:
-                                                _session?.sessionExpiresAt,
-                                            devices: _registeredDevices,
-                                            currentDeviceName:
-                                                _currentDeviceName(),
-                                            currentPlatform:
-                                                Platform.operatingSystem,
-                                            onSettingsChanged: _updateSettings,
-                                            onRevokeDevice: _revokeDevice,
+                                          const TabBar(
+                                            tabs: [
+                                              Tab(text: 'Notes'),
+                                              Tab(text: 'Editor'),
+                                              Tab(text: 'Settings'),
+                                            ],
                                           ),
-                                        ),
+                                          Expanded(
+                                            child: TabBarView(
+                                              children: [
+                                                notesPane,
+                                                editorPane,
+                                                settingsPane,
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }
+
+                                  final isCompact = constraints.maxWidth < 1100;
+                                  if (isCompact) {
+                                    return Column(
+                                      children: [
+                                        Expanded(child: notesPane),
+                                        const Divider(height: 1),
+                                        Expanded(child: editorPane),
+                                        const Divider(height: 1),
+                                        SizedBox(
+                                            height: 320, child: settingsPane),
                                       ],
                                     );
-                                  },
-                                ),
+                                  }
+
+                                  return Row(
+                                    children: [
+                                      SizedBox(width: 320, child: notesPane),
+                                      Expanded(child: editorPane),
+                                      SizedBox(width: 320, child: settingsPane),
+                                    ],
+                                  );
+                                },
                               ),
+                            ),
+                          ],
+                        );
+
+                        if (isNarrowShell) {
+                          final sidebarHeight = min(
+                            420.0,
+                            max(280.0, shellConstraints.maxHeight * 0.38),
+                          );
+                          return Column(
+                            children: [
+                              SizedBox(
+                                  height: sidebarHeight, child: sidebarPane),
+                              const Divider(height: 1),
+                              Expanded(child: workspacePane),
                             ],
-                          ),
-                        ),
-                      ],
+                          );
+                        }
+
+                        return Row(
+                          children: [
+                            SizedBox(width: 280, child: sidebarPane),
+                            Expanded(child: workspacePane),
+                          ],
+                        );
+                      },
                     ),
             ),
           ),
@@ -2200,6 +2247,7 @@ class _ApprovalCodeEntryDialogState extends State<_ApprovalCodeEntryDialog> {
 
 class _TopBar extends StatelessWidget {
   const _TopBar({
+    required this.compact,
     required this.searchController,
     required this.isCreating,
     required this.isRenaming,
@@ -2215,6 +2263,7 @@ class _TopBar extends StatelessWidget {
     required this.onSync,
   });
 
+  final bool compact;
   final TextEditingController searchController;
   final bool isCreating;
   final bool isRenaming;
@@ -2231,71 +2280,103 @@ class _TopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final actionButtons = <Widget>[
+      FilledButton.icon(
+        onPressed: isCreating ? null : onCreate,
+        icon: Icon(isCreating ? Icons.sync : Icons.note_add_outlined),
+        label: Text(isCreating ? 'Creating' : 'New note'),
+      ),
+      FilledButton.tonalIcon(
+        onPressed: isRenaming || selectedNoteIsTrashed ? null : onRename,
+        icon: Icon(isRenaming ? Icons.sync : Icons.drive_file_rename_outline),
+        label: Text(isRenaming ? 'Renaming' : 'Rename'),
+      ),
+      FilledButton.icon(
+        onPressed: isSaving || selectedNoteIsTrashed ? null : onSave,
+        icon: Icon(isSaving ? Icons.sync : Icons.save_outlined),
+        label: Text(isSaving ? 'Saving' : 'Save'),
+      ),
+      FilledButton.tonalIcon(
+        onPressed: isDeleting ? null : onDeleteOrRestore,
+        icon: Icon(
+          isDeleting
+              ? Icons.sync
+              : (selectedNoteIsTrashed
+                  ? Icons.restore_from_trash_outlined
+                  : Icons.delete_outline),
+        ),
+        label: Text(
+          isDeleting
+              ? (selectedNoteIsTrashed ? 'Restoring' : 'Deleting')
+              : (selectedNoteIsTrashed ? 'Restore' : 'Delete'),
+        ),
+      ),
+      FilledButton.tonalIcon(
+        onPressed: onCommandPalette,
+        icon: const Icon(Icons.keyboard_command_key),
+        label: const Text('Command'),
+      ),
+      FilledButton.tonalIcon(
+        onPressed: isSyncing ? null : onSync,
+        icon: Icon(isSyncing ? Icons.sync : Icons.cloud_upload_outlined),
+        label: Text(isSyncing ? 'Syncing' : 'Sync now'),
+      ),
+    ];
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: const BoxDecoration(
         border: Border(bottom: BorderSide(color: Color(0xFFD7D0C1))),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: SearchBar(
-              controller: searchController,
-              hintText: 'Search notes on this device',
-              leading: const Icon(Icons.search),
+      child: compact
+          ? Column(
+              children: [
+                SearchBar(
+                  controller: searchController,
+                  hintText: 'Search notes on this device',
+                  leading: const Icon(Icons.search),
+                ),
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: actionButtons,
+                  ),
+                ),
+              ],
+            )
+          : Row(
+              children: [
+                Expanded(
+                  child: SearchBar(
+                    controller: searchController,
+                    hintText: 'Search notes on this device',
+                    leading: const Icon(Icons.search),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ..._withHorizontalSpacing(actionButtons, 12),
+              ],
             ),
-          ),
-          const SizedBox(width: 12),
-          FilledButton.icon(
-            onPressed: isCreating ? null : onCreate,
-            icon: Icon(isCreating ? Icons.sync : Icons.note_add_outlined),
-            label: Text(isCreating ? 'Creating' : 'New note'),
-          ),
-          const SizedBox(width: 12),
-          FilledButton.tonalIcon(
-            onPressed: isRenaming || selectedNoteIsTrashed ? null : onRename,
-            icon:
-                Icon(isRenaming ? Icons.sync : Icons.drive_file_rename_outline),
-            label: Text(isRenaming ? 'Renaming' : 'Rename'),
-          ),
-          const SizedBox(width: 12),
-          FilledButton.icon(
-            onPressed: isSaving || selectedNoteIsTrashed ? null : onSave,
-            icon: Icon(isSaving ? Icons.sync : Icons.save_outlined),
-            label: Text(isSaving ? 'Saving' : 'Save'),
-          ),
-          const SizedBox(width: 12),
-          FilledButton.tonalIcon(
-            onPressed: isDeleting ? null : onDeleteOrRestore,
-            icon: Icon(
-              isDeleting
-                  ? Icons.sync
-                  : (selectedNoteIsTrashed
-                      ? Icons.restore_from_trash_outlined
-                      : Icons.delete_outline),
-            ),
-            label: Text(
-              isDeleting
-                  ? (selectedNoteIsTrashed ? 'Restoring' : 'Deleting')
-                  : (selectedNoteIsTrashed ? 'Restore' : 'Delete'),
-            ),
-          ),
-          const SizedBox(width: 12),
-          FilledButton.tonalIcon(
-            onPressed: onCommandPalette,
-            icon: const Icon(Icons.keyboard_command_key),
-            label: const Text('Command'),
-          ),
-          const SizedBox(width: 12),
-          FilledButton.tonalIcon(
-            onPressed: isSyncing ? null : onSync,
-            icon: Icon(isSyncing ? Icons.sync : Icons.cloud_upload_outlined),
-            label: Text(isSyncing ? 'Syncing' : 'Sync now'),
-          ),
-        ],
-      ),
     );
   }
+}
+
+List<Widget> _withHorizontalSpacing(List<Widget> children, double spacing) {
+  if (children.isEmpty) {
+    return const <Widget>[];
+  }
+
+  final widgets = <Widget>[];
+  for (var index = 0; index < children.length; index++) {
+    if (index > 0) {
+      widgets.add(SizedBox(width: spacing));
+    }
+    widgets.add(children[index]);
+  }
+  return widgets;
 }
 
 class _WorkspaceCommand {

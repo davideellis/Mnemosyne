@@ -2,6 +2,28 @@
 
 ## Release Readiness
 
+### Windows Device Guard blocks local Flutter validation
+
+Status:
+- Blocked locally on this workstation
+
+Why it is blocked:
+- The Flutter client can stop validating on Windows even when the SDK is present because Windows Device Guard / application control may block the bundled Dart runtime.
+- Latest validation failed with: `dart.exe was blocked by your organization's Device Guard policy.`
+
+What is already working:
+- Flutter validation and Apple-side builds on the Mac mini
+- Windows build validation worked previously before the policy block reappeared
+- Go backend validation still works locally through WSL
+
+Unblock conditions:
+- Allow the Flutter SDK bundled Dart runtime on this workstation, or
+- Move Windows-side Flutter validation to a different machine/profile without that policy block
+
+Likely follow-up work once unblocked:
+- Restore direct Windows `flutter analyze`, `flutter test`, and `flutter build windows`
+- Capture a stable local validation workflow in the development docs if the policy remains flaky
+
 ### Windows code signing
 
 Status:
