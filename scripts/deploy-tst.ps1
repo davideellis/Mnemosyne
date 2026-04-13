@@ -3,6 +3,7 @@ param(
   [string]$Profile = "Mnemosyne-tst",
   [string]$Region = "us-east-2",
   [string]$BootstrapEmail = "admin@mnemosyne.local",
+  [string]$SmokeRemoteMacHost,
   [switch]$SkipSmoke
 )
 
@@ -91,7 +92,17 @@ if (-not $SkipSmoke) {
     Write-Host "Skipping live smoke: MNEMOSYNE_TST_EMAIL / MNEMOSYNE_TST_PASSWORD are not configured." -ForegroundColor DarkYellow
   } else {
     Write-Host "Running live smoke verification" -ForegroundColor Cyan
-    & $runSmokeScript -Profile $Profile -Region $Region -StackName $StackName -Email $smokeEmail -Password $smokePassword
+    $smokeArgs = @(
+      "-Profile", $Profile,
+      "-Region", $Region,
+      "-StackName", $StackName,
+      "-Email", $smokeEmail,
+      "-Password", $smokePassword
+    )
+    if (-not [string]::IsNullOrWhiteSpace($SmokeRemoteMacHost)) {
+      $smokeArgs += @("-RemoteMacHost", $SmokeRemoteMacHost)
+    }
+    & $runSmokeScript @smokeArgs
     if ($LASTEXITCODE -ne 0) {
       throw "Live smoke verification failed after deploy."
     }

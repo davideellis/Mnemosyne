@@ -35,6 +35,12 @@ What it does:
 - verifies `/healthz`
 - runs the full live smoke pass automatically when local `MNEMOSYNE_TST_*` credentials are available
 
+If Windows cannot run Flutter locally, the deploy wrapper can hand that post-deploy smoke step to the Mac mini:
+
+```powershell
+.\scripts\deploy-tst.ps1 -SmokeRemoteMacHost mnemosyne-mac
+```
+
 To skip the smoke step intentionally:
 
 ```powershell
