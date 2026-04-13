@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:mnemosyne/src/features/notes/sync_api_client.dart';
+import 'package:mnemosyne/src/features/notes/sync_crypto_service.dart';
 import 'package:mnemosyne/src/features/notes/sync_models.dart';
 
 Future<void> main(List<String> args) async {
@@ -18,6 +20,7 @@ Future<void> main(List<String> args) async {
   final revokeDevice = options.containsKey('revoke-device');
   final trashRestore = options.containsKey('trash-restore');
   final approvalRoundtrip = options.containsKey('approval-roundtrip');
+  final staleWrite = options.containsKey('stale-write');
   final full = options.containsKey('full');
   final logout = options.containsKey('logout');
   final approvalCode = options['approval-code'] ?? 'ABCD-EFGH-IJKL';
@@ -181,6 +184,17 @@ Future<void> main(List<String> args) async {
       email: email,
       password: password,
       approvalCode: approvalCode,
+      deviceName: deviceName,
+      devicePlatform: devicePlatform,
+    );
+    return;
+  }
+
+  if (staleWrite) {
+    await _runStaleWriteSmoke(
+      client: client,
+      baseUri: baseUri,
+      session: session,
       deviceName: deviceName,
       devicePlatform: devicePlatform,
     );
@@ -369,6 +383,16 @@ Future<void> _runFullSmoke({
   if (exitCode != 0) {
     return;
   }
+  await _runStaleWriteSmoke(
+    client: client,
+    baseUri: baseUri,
+    session: session,
+    deviceName: deviceName,
+    devicePlatform: devicePlatform,
+  );
+  if (exitCode != 0) {
+    return;
+  }
 
   stdout.writeln('Full smoke flow passed.');
 }
@@ -414,7 +438,8 @@ Future<void> _runNoteSmoke({
   final matchingChanges = pullResult.pulledChanges
       .where((change) => change.objectId == objectId)
       .toList(growable: false);
-  if (matchingChanges.length != 1 || matchingChanges.first.markdown != markdown) {
+  if (matchingChanges.length != 1 ||
+      matchingChanges.first.markdown != markdown) {
     stderr.writeln(
       'Note smoke test failed. Expected one round-tripped note for $objectId.',
     );
@@ -640,4 +665,140 @@ Future<void> _runApprovalRoundtrip({
   }
 
   stdout.writeln('Approval + revoke passed.');
+}
+
+Future<void> _runStaleWriteSmoke({
+  required SyncApiClient client,
+  required Uri baseUri,
+  required SyncSession session,
+  required String deviceName,
+  required String devicePlatform,
+}) async {
+  final objectId = 'stale-${DateTime.now().toUtc().millisecondsSinceEpoch}';
+  final relativePath = 'Smoke/$objectId.md';
+  final latestMarkdown = '# Fresh\n\nThis is the latest write.\n';
+  final staleMarkdown = '# Stale\n\nThis write should be ignored.\n';
+
+  await client.syncVault(
+    baseUri: baseUri,
+    session: session,
+    changes: <SyncPushChange>[
+      SyncPushChange(
+        objectId: objectId,
+        kind: 'note',
+        operation: 'upsert',
+        relativePath: relativePath,
+        title: 'Fresh',
+        markdown: latestMarkdown,
+        tags: const <String>['smoke'],
+      ),
+    ],
+    cursor: '',
+    deviceName: deviceName,
+    platform: devicePlatform,
+  );
+
+  final staleTimestamp = DateTime.now()
+      .toUtc()
+      .subtract(const Duration(minutes: 5))
+      .toIso8601String();
+  await _pushRawChange(
+    baseUri: baseUri,
+    session: session,
+    change: await _encodeRawChange(
+      session: session,
+      objectId: objectId,
+      relativePath: relativePath,
+      title: 'Stale',
+      markdown: staleMarkdown,
+      tags: const <String>['smoke', 'stale'],
+      logicalTimestamp: staleTimestamp,
+      originDeviceId: '${deviceName}_stale::$devicePlatform',
+      changeId: '$objectId:$staleTimestamp:upsert',
+    ),
+  );
+
+  final pullResult = await client.pullVault(
+    baseUri: baseUri,
+    session: session,
+    cursor: '',
+  );
+  final matchingChanges = pullResult.pulledChanges
+      .where((change) => change.objectId == objectId)
+      .toList(growable: false);
+  if (matchingChanges.isEmpty ||
+      matchingChanges.last.markdown != latestMarkdown) {
+    stderr.writeln(
+      'Stale-write smoke test failed. Expected the freshest note body to survive.',
+    );
+    stderr.writeln('Matches: ${matchingChanges.length}');
+    if (matchingChanges.isNotEmpty) {
+      stderr.writeln('Latest markdown: ${matchingChanges.last.markdown}');
+    }
+    exitCode = 1;
+    return;
+  }
+
+  stdout.writeln('Stale-write protection passed for $objectId.');
+}
+
+Future<Map<String, dynamic>> _encodeRawChange({
+  required SyncSession session,
+  required String objectId,
+  required String relativePath,
+  required String title,
+  required String markdown,
+  required List<String> tags,
+  required String logicalTimestamp,
+  required String originDeviceId,
+  required String changeId,
+}) async {
+  final crypto = SyncCryptoService();
+  final encryptedPayload = await crypto.encryptNote(
+    masterKeyMaterial: session.masterKeyMaterial,
+    metadata: <String, dynamic>{
+      'title': title,
+      'relativePath': relativePath,
+      'tags': tags,
+      'wikilinks': const <String>[],
+    },
+    markdown: markdown,
+  );
+
+  return <String, dynamic>{
+    'changeId': changeId,
+    'objectId': objectId,
+    'kind': 'note',
+    'operation': 'upsert',
+    'logicalTimestamp': logicalTimestamp,
+    'originDeviceId': originDeviceId,
+    'encryptedMetadata': encryptedPayload.encryptedMetadata,
+    'encryptedPayload': encryptedPayload.encryptedPayload,
+  };
+}
+
+Future<void> _pushRawChange({
+  required Uri baseUri,
+  required SyncSession session,
+  required Map<String, dynamic> change,
+}) async {
+  final client = HttpClient();
+  try {
+    final request = await client.postUrl(baseUri.resolve('/v1/sync/push'));
+    request.headers.contentType = ContentType.json;
+    request.write(jsonEncode(<String, dynamic>{
+      'sessionToken': session.sessionToken,
+      'cursor': '',
+      'changes': <Map<String, dynamic>>[change],
+    }));
+
+    final response = await request.close();
+    final responseBody = await response.transform(utf8.decoder).join();
+    if (response.statusCode >= 400) {
+      throw Exception(
+          'Raw push failed (${response.statusCode}): $responseBody');
+    }
+  } finally {
+    client.close(force: true);
+  }
 }

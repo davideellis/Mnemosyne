@@ -142,7 +142,7 @@ Current test deployment workflow on this machine:
 - The script is intentionally hard-scoped to AWS account `163649805194`
 - It builds the Lambda artifact, uploads it under a fresh S3 key, deploys `Mnemosyne-tst`, and runs a `/healthz` smoke check
 - Use `flutter pub run tool/smoke_sync_api.dart --base-url <api> --email <email> --password <password>` from `apps/client_flutter` for an encrypted login/push/pull smoke test
-- The smoke runner also supports `--full`, `--trash-restore`, `--approval-roundtrip`, `--device-name`, `--device-platform`, `--list-devices`, `--start-approval`, `--consume-approval`, and `--revoke-device --target-device-id <id>`
+- The smoke runner also supports `--full`, `--trash-restore`, `--approval-roundtrip`, `--stale-write`, `--device-name`, `--device-platform`, `--list-devices`, `--start-approval`, `--consume-approval`, and `--revoke-device --target-device-id <id>`
 - Do not point this script at production; keep production changes manual until the test path is stable
 
 Document at least:

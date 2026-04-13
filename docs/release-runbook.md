@@ -85,9 +85,10 @@ On this workstation, the wrapper can also use user-scoped environment variables:
 
 Useful smoke runner modes:
 
-- `--full` for note sync, settings sync, trash restore, approval, and revoke
+- `--full` for note sync, settings sync, trash restore, approval, revoke, and stale-write verification
 - `--trash-restore` for synced trash recovery only
 - `--approval-roundtrip` for device approval and revocation only
+- `--stale-write` for last-write-wins verification against the live API
 - `--list-devices` to inspect registered devices
 
 To intentionally reset the single-user test account and immediately re-bootstrap it:
