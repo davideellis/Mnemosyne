@@ -16,6 +16,7 @@ import 'note_search_service.dart';
 import 'secure_key_repository.dart';
 import 'sync_api_client.dart';
 import 'sync_models.dart';
+import 'unsaved_changes_dialog.dart';
 import 'vault_models.dart';
 
 class NotesWorkspacePage extends StatefulWidget {
@@ -413,6 +414,10 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   }
 
   Future<void> _openVaultFromInput() async {
+    if (!await _confirmSelectionChange('this vault')) {
+      return;
+    }
+
     final selectedPath = _vaultPathController.text.trim();
     if (selectedPath.isEmpty) {
       setState(() {
@@ -905,6 +910,16 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     });
   }
 
+  Future<void> _selectNoteWithGuard(VaultNote note) async {
+    if (!await _confirmSelectionChange(note.title)) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    _selectNote(note);
+  }
+
   void _selectTrashedNote(VaultNote note) {
     setState(() {
       _selectedNote = note;
@@ -914,7 +929,17 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     });
   }
 
-  void _openLinkedNote(String target) {
+  Future<void> _selectTrashedNoteWithGuard(VaultNote note) async {
+    if (!await _confirmSelectionChange(note.title)) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    _selectTrashedNote(note);
+  }
+
+  Future<void> _openLinkedNote(String target) async {
     final snapshot = _snapshot;
     if (snapshot == null) {
       return;
@@ -932,7 +957,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       final matchesPath = note.relativePath.toLowerCase() == normalizedTarget ||
           note.relativePath.toLowerCase() == '$normalizedTarget.md';
       if (matchesTitle || matchesBasename || matchesPath) {
-        _selectNote(note);
+        await _selectNoteWithGuard(note);
         return;
       }
     }
@@ -941,6 +966,36 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       _statusLabel = 'Link not found locally';
       _syncMessage = 'No local note matched "$target".';
     });
+  }
+
+  bool _hasUnsavedEdits() {
+    final selectedNote = _selectedNote;
+    if (selectedNote == null || _selectedNoteIsTrashed) {
+      return false;
+    }
+    return _editorController.text != selectedNote.markdown;
+  }
+
+  Future<bool> _confirmSelectionChange(String targetLabel) async {
+    if (!_hasUnsavedEdits()) {
+      return true;
+    }
+
+    final action = await showDialog<UnsavedChangesAction>(
+      context: context,
+      builder: (context) => UnsavedChangesDialog(targetLabel: targetLabel),
+    );
+
+    switch (action) {
+      case UnsavedChangesAction.save:
+        await _saveSelectedNote();
+        return mounted && !_hasUnsavedEdits();
+      case UnsavedChangesAction.discard:
+        return true;
+      case UnsavedChangesAction.cancel:
+      case null:
+        return false;
+    }
   }
 
   Uri _parseBaseUri() {
@@ -1040,7 +1095,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
             shortcutLabel: note.relativePath,
             icon: Icons.description_outlined,
             onSelected: () async {
-              _selectNote(note);
+              await _selectNoteWithGuard(note);
             },
           ),
         )
@@ -1677,7 +1732,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                 leading: const Icon(Icons.delete_outline),
                 selected: _selectedNoteIsTrashed &&
                     selectedNote?.objectId == note.objectId,
-                onTap: () => _selectTrashedNote(note),
+                onTap: () => unawaited(_selectTrashedNoteWithGuard(note)),
               ),
           ],
           const SizedBox(height: 12),
@@ -1844,11 +1899,16 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                     selectedNoteId: selectedNote?.objectId,
                                     selectedNoteIsTrashed:
                                         _selectedNoteIsTrashed,
-                                    backlinksEnabled:
-                                        _settings.backlinksEnabled,
-                                    onSelect: _selectNote,
-                                    onSelectTrash: _selectTrashedNote,
-                                  );
+                                        backlinksEnabled:
+                                            _settings.backlinksEnabled,
+                                        onSelect: (note) {
+                                          unawaited(_selectNoteWithGuard(note));
+                                        },
+                                        onSelectTrash: (note) {
+                                          unawaited(
+                                              _selectTrashedNoteWithGuard(note));
+                                        },
+                                      );
                                   final editorPane = _EditorPane(
                                     note: selectedNote,
                                     isTrashed: _selectedNoteIsTrashed,
