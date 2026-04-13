@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter/services.dart';
 
 import '../../widgets/status_chip.dart';
@@ -2696,15 +2697,55 @@ class _EditorPane extends StatelessWidget {
                 ),
                 const SizedBox(height: 20),
                 Expanded(
-                  child: TextField(
-                    controller: controller,
-                    readOnly: isTrashed,
-                    expands: true,
-                    maxLines: null,
-                    minLines: null,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      hintText: 'Write Markdown here...',
+                  child: DefaultTabController(
+                    length: 2,
+                    child: Column(
+                      children: [
+                        const TabBar(
+                          tabs: [
+                            Tab(text: 'Edit'),
+                            Tab(text: 'Preview'),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Expanded(
+                          child: TabBarView(
+                            children: [
+                              TextField(
+                                controller: controller,
+                                readOnly: isTrashed,
+                                expands: true,
+                                maxLines: null,
+                                minLines: null,
+                                decoration: const InputDecoration(
+                                  border: OutlineInputBorder(),
+                                  hintText: 'Write Markdown here...',
+                                ),
+                              ),
+                              Container(
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: theme.colorScheme.outlineVariant,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: ListenableBuilder(
+                                  listenable: controller,
+                                  builder: (context, _) {
+                                    return Markdown(
+                                      data: controller.text.isEmpty
+                                          ? '_Nothing to preview yet._'
+                                          : controller.text,
+                                      selectable: true,
+                                      padding: const EdgeInsets.all(16),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
