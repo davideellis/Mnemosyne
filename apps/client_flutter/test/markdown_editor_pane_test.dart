@@ -17,6 +17,7 @@ void main() {
             child: MarkdownEditorPane(
               controller: controller,
               isReadOnly: false,
+              onOpenInternalLink: (_) {},
             ),
           ),
         ),
@@ -52,6 +53,7 @@ void main() {
             child: MarkdownEditorPane(
               controller: controller,
               isReadOnly: true,
+              onOpenInternalLink: (_) {},
             ),
           ),
         ),
@@ -62,5 +64,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Nothing to preview yet.'), findsOneWidget);
+  });
+
+  test('converts wikilinks into internal preview links', () {
+    final rendered = MarkdownEditorPane.renderableMarkdownForPreview(
+      'See [[Roadmap]] and [[Project Plan|plan]].',
+    );
+
+    expect(rendered, contains('[Roadmap](mnemosyne://note/Roadmap)'));
+    expect(
+      rendered,
+      contains('[plan](mnemosyne://note/Project%20Plan)'),
+    );
   });
 }

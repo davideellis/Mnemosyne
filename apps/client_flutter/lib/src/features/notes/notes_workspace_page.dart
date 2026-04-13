@@ -2760,6 +2760,7 @@ class _EditorPane extends StatelessWidget {
                   child: MarkdownEditorPane(
                     controller: controller,
                     isReadOnly: isTrashed,
+                    onOpenInternalLink: onOpenLinkedNote,
                   ),
                 ),
               ],

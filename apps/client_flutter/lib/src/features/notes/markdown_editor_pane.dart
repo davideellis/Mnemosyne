@@ -6,10 +6,12 @@ class MarkdownEditorPane extends StatelessWidget {
     super.key,
     required this.controller,
     required this.isReadOnly,
+    required this.onOpenInternalLink,
   });
 
   final TextEditingController controller;
   final bool isReadOnly;
+  final ValueChanged<String> onOpenInternalLink;
 
   @override
   Widget build(BuildContext context) {
@@ -53,9 +55,19 @@ class MarkdownEditorPane extends StatelessWidget {
                       return Markdown(
                         data: controller.text.isEmpty
                             ? '_Nothing to preview yet._'
-                            : controller.text,
+                            : renderableMarkdownForPreview(controller.text),
                         selectable: true,
                         padding: const EdgeInsets.all(16),
+                        onTapLink: (text, href, title) {
+                          if (href == null ||
+                              !href.startsWith('mnemosyne://note/')) {
+                            return;
+                          }
+                          final target = Uri.decodeComponent(
+                            href.substring('mnemosyne://note/'.length),
+                          );
+                          onOpenInternalLink(target);
+                        },
                       );
                     },
                   ),
@@ -65,6 +77,23 @@ class MarkdownEditorPane extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  static String renderableMarkdownForPreview(String markdown) {
+    return markdown.replaceAllMapped(
+      RegExp(r'\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]'),
+      (match) {
+        final target = match.group(1)?.trim() ?? '';
+        if (target.isEmpty) {
+          return match.group(0) ?? '';
+        }
+        final label = (match.group(2)?.trim().isNotEmpty ?? false)
+            ? match.group(2)!.trim()
+            : target;
+        final encodedTarget = Uri.encodeComponent(target);
+        return '[$label](mnemosyne://note/$encodedTarget)';
+      },
     );
   }
 }
