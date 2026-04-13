@@ -11,6 +11,7 @@ import '../settings/settings_panel.dart';
 import '../settings/workspace_settings.dart';
 import 'app_state_repository.dart';
 import 'local_vault_repository.dart';
+import 'note_search_service.dart';
 import 'secure_key_repository.dart';
 import 'sync_api_client.dart';
 import 'sync_models.dart';
@@ -28,6 +29,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   final AppStateRepository _appStateRepository = AppStateRepository();
   final SecureKeyRepository _secureKeyRepository = SecureKeyRepository();
   final SyncApiClient _syncApiClient = SyncApiClient();
+  final NoteSearchService _noteSearchService = const NoteSearchService();
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _editorController = TextEditingController();
   final TextEditingController _apiBaseUrlController =
@@ -1892,106 +1894,11 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   }
 
   List<VaultNote> _filteredNotes(List<VaultNote> source) {
-    final scopedNotes = source.where((note) {
-      if (_selectedFolderFilter != null &&
-          !_noteMatchesFolder(note, _selectedFolderFilter!)) {
-        return false;
-      }
-      return true;
-    }).toList(growable: false);
-
-    if (_searchQuery.isEmpty) {
-      return scopedNotes;
-    }
-
-    final tokens = _searchQuery
-        .split(RegExp(r'\s+'))
-        .where((token) => token.isNotEmpty)
-        .toList(growable: false);
-    final rankedNotes = <({VaultNote note, int score})>[];
-
-    for (final note in scopedNotes) {
-      final score = _noteSearchScore(note, _searchQuery, tokens);
-      if (score <= 0) {
-        continue;
-      }
-      rankedNotes.add((note: note, score: score));
-    }
-
-    rankedNotes.sort((left, right) {
-      final scoreComparison = right.score.compareTo(left.score);
-      if (scoreComparison != 0) {
-        return scoreComparison;
-      }
-
-      final modifiedComparison =
-          right.note.modifiedAt.compareTo(left.note.modifiedAt);
-      if (modifiedComparison != 0) {
-        return modifiedComparison;
-      }
-
-      return left.note.title.compareTo(right.note.title);
-    });
-
-    return rankedNotes.map((entry) => entry.note).toList(growable: false);
-  }
-
-  int _noteSearchScore(VaultNote note, String query, List<String> tokens) {
-    final title = note.title.toLowerCase();
-    final relativePath = note.relativePath.toLowerCase();
-    final markdown = note.markdown.toLowerCase();
-    final tags =
-        note.tags.map((tag) => tag.toLowerCase()).toList(growable: false);
-    final wikilinks = note.wikilinks
-        .map((link) => link.toLowerCase())
-        .toList(growable: false);
-    final backlinks = note.backlinks
-        .map((link) => link.toLowerCase())
-        .toList(growable: false);
-
-    var score = 0;
-
-    if (title == query) {
-      score += 400;
-    } else if (title.startsWith(query)) {
-      score += 260;
-    } else if (title.contains(query)) {
-      score += 180;
-    }
-
-    if (relativePath == query) {
-      score += 220;
-    } else if (relativePath.contains(query)) {
-      score += 120;
-    }
-
-    for (final token in tokens) {
-      if (title == token) {
-        score += 160;
-      } else if (title.startsWith(token)) {
-        score += 110;
-      } else if (title.contains(token)) {
-        score += 70;
-      }
-
-      if (relativePath.contains(token)) {
-        score += 45;
-      }
-      if (tags.contains(token)) {
-        score += 80;
-      }
-      if (wikilinks.contains(token)) {
-        score += 55;
-      }
-      if (backlinks.contains(token)) {
-        score += 35;
-      }
-      if (markdown.contains(token)) {
-        score += 10;
-      }
-    }
-
-    return score;
+    return _noteSearchService.filterAndRank(
+      notes: source,
+      query: _searchQuery,
+      folderFilter: _selectedFolderFilter,
+    );
   }
 
   bool _noteMatchesFolder(VaultNote note, String folder) {

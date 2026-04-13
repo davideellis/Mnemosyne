@@ -410,8 +410,11 @@ Reference [[Roadmap]] when documenting setup.
   }
 
   static String? _resolveVaultPath(String rootPath, String relativePath) {
-    final normalized = path.normalize(relativePath);
+    final normalized = path.normalize(relativePath).replaceAll('\\', '/');
     if (path.isAbsolute(normalized) || normalized.startsWith('..')) {
+      return null;
+    }
+    if (normalized == '.mnemosyne' || normalized.startsWith('.mnemosyne/')) {
       return null;
     }
     return path.join(rootPath, normalized);

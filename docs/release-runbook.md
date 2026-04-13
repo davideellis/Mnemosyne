@@ -33,6 +33,13 @@ What it does:
 - uploads it to the test artifact bucket
 - deploys the CloudFormation stack
 - verifies `/healthz`
+- runs the full live smoke pass automatically when local `MNEMOSYNE_TST_*` credentials are available
+
+To skip the smoke step intentionally:
+
+```powershell
+.\scripts\deploy-tst.ps1 -SkipSmoke
+```
 
 ## Health Check
 

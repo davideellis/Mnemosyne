@@ -268,6 +268,20 @@ class SyncApiClient {
       );
     }
 
+    if (encodedChanges.isEmpty) {
+      final pullResult = await pullVault(
+        baseUri: baseUri,
+        session: session,
+        cursor: cursor,
+      );
+      return SyncResult(
+        cursor: pullResult.cursor,
+        pushedCount: 0,
+        pulledCount: pullResult.pulledCount,
+        pulledChanges: pullResult.pulledChanges,
+      );
+    }
+
     final pushResponse = await _post(
       baseUri,
       '/v1/sync/push',

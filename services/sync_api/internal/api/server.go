@@ -37,6 +37,8 @@ type BuildInfo struct {
 	AWSMode  string `json:"awsMode,omitempty"`
 }
 
+const maxSyncPushChanges = 256
+
 var requestCounter uint64
 
 func NewServer(store Store, options ...func(*Server)) *Server {
@@ -524,6 +526,21 @@ func validateSyncPushRequest(req sync.SyncPushRequest) error {
 	if req.SessionToken == "" {
 		return fmt.Errorf("sessionToken is required")
 	}
+	if len(req.Changes) > maxSyncPushChanges {
+		return fmt.Errorf("changes may not exceed %d entries", maxSyncPushChanges)
+	}
+	seenChangeIDs := make(map[string]struct{}, len(req.Changes))
+	for index, change := range req.Changes {
+		if _, exists := seenChangeIDs[change.ChangeID]; exists && change.ChangeID != "" {
+			return fmt.Errorf("changes[%d]: duplicate changeId %q", index, change.ChangeID)
+		}
+		if change.ChangeID != "" {
+			seenChangeIDs[change.ChangeID] = struct{}{}
+		}
+		if err := validateSyncChange(change); err != nil {
+			return fmt.Errorf("changes[%d]: %w", index, err)
+		}
+	}
 	return nil
 }
 
@@ -548,4 +565,49 @@ func validateDevice(device sync.Device) error {
 		return fmt.Errorf("device.platform is required")
 	}
 	return nil
+}
+
+func validateSyncChange(change sync.SyncChange) error {
+	if change.ChangeID == "" {
+		return fmt.Errorf("changeId is required")
+	}
+	if change.ObjectID == "" {
+		return fmt.Errorf("objectId is required")
+	}
+	switch change.Kind {
+	case "note", "settings":
+	default:
+		return fmt.Errorf("kind must be one of note, settings")
+	}
+	switch change.Operation {
+	case "upsert", "trash", "restore":
+	default:
+		return fmt.Errorf("operation must be one of upsert, trash, restore")
+	}
+	if change.LogicalTimestamp == "" {
+		return fmt.Errorf("logicalTimestamp is required")
+	}
+	if parseTime := syncTime(change.LogicalTimestamp); parseTime.IsZero() {
+		return fmt.Errorf("logicalTimestamp must be RFC3339 or RFC3339Nano")
+	}
+	if change.OriginDeviceID == "" {
+		return fmt.Errorf("originDeviceId is required")
+	}
+	if change.EncryptedMetadata == "" {
+		return fmt.Errorf("encryptedMetadata is required")
+	}
+	if change.EncryptedPayload == "" {
+		return fmt.Errorf("encryptedPayload is required")
+	}
+	return nil
+}
+
+func syncTime(value string) time.Time {
+	if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return parsed.UTC()
+	}
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed.UTC()
+	}
+	return time.Time{}
 }

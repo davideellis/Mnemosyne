@@ -612,4 +612,87 @@ void main() {
     expect(result.pulledChanges.single.settings['themeMode'], 'dark');
     expect(result.pulledChanges.single.settings['autoSyncEnabled'], isFalse);
   });
+
+  test('syncVault skips push when there are no local changes', () async {
+    final cryptoService = SyncCryptoService();
+    final bootstrapMaterial = await cryptoService.createBootstrapMaterial(
+      email: 'demo@mnemosyne.local',
+      password: 'password',
+      recoveryKey: 'AAAA-BBBB-CCCC-DDDD',
+    );
+    var pushCalled = false;
+
+    final encryptedRemoteNote = await cryptoService.encryptNote(
+      masterKeyMaterial: bootstrapMaterial.masterKeyMaterial,
+      metadata: <String, dynamic>{
+        'title': 'Remote Only',
+        'relativePath': 'Inbox/remote-only.md',
+        'tags': <String>['inbox'],
+        'wikilinks': <String>['Today'],
+      },
+      markdown: '# Remote Only',
+    );
+
+    final client = SyncApiClient(
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/v1/sync/push') {
+          pushCalled = true;
+          return http.Response(
+            jsonEncode(<String, dynamic>{'cursor': 'cursor-should-not-happen'}),
+            202,
+            headers: const <String, String>{'content-type': 'application/json'},
+          );
+        }
+
+        expect(request.url.path, '/v1/sync/pull');
+        final payload = jsonDecode(request.body) as Map<String, dynamic>;
+        expect(payload['cursor'], 'cursor-0');
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'cursor': 'cursor-1',
+            'changes': <dynamic>[
+              <String, dynamic>{
+                'changeId': 'change-remote-only',
+                'objectId': 'note-remote-only',
+                'kind': 'note',
+                'operation': 'upsert',
+                'encryptedMetadata': encryptedRemoteNote.encryptedMetadata,
+                'encryptedPayload': encryptedRemoteNote.encryptedPayload,
+              },
+            ],
+          }),
+          200,
+          headers: const <String, String>{'content-type': 'application/json'},
+        );
+      }),
+      cryptoService: cryptoService,
+    );
+
+    final result = await client.syncVault(
+      baseUri: Uri.parse('http://127.0.0.1:8080'),
+      session: SyncSession(
+        accountId: 'acct_local',
+        sessionToken: 'session_bootstrap',
+        email: 'demo@mnemosyne.local',
+        sessionExpiresAt: null,
+        encryptedMasterKeyForPassword:
+            bootstrapMaterial.encryptedMasterKeyForPassword,
+        encryptedMasterKeyForRecovery:
+            bootstrapMaterial.encryptedMasterKeyForRecovery,
+        wrappedMasterKeyForApproval: '',
+        masterKeyMaterial: bootstrapMaterial.masterKeyMaterial,
+        recoveryKeyHint: 'saved-locally',
+      ),
+      changes: const <SyncPushChange>[],
+      cursor: 'cursor-0',
+      deviceName: 'Windows Desktop',
+      platform: 'windows',
+    );
+
+    expect(pushCalled, isFalse);
+    expect(result.pushedCount, 0);
+    expect(result.pulledCount, 1);
+    expect(result.cursor, 'cursor-1');
+    expect(result.pulledChanges.single.relativePath, 'Inbox/remote-only.md');
+  });
 }

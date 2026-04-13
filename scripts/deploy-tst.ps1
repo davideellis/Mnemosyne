@@ -2,7 +2,8 @@ param(
   [string]$StackName = "Mnemosyne-tst",
   [string]$Profile = "Mnemosyne-tst",
   [string]$Region = "us-east-2",
-  [string]$BootstrapEmail = "admin@mnemosyne.local"
+  [string]$BootstrapEmail = "admin@mnemosyne.local",
+  [switch]$SkipSmoke
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,6 +11,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $templatePath = Join-Path $repoRoot "infra/aws/cfn/mnemosyne-single-user.yaml"
 $artifactPath = Join-Path $repoRoot "dist/sync_api_lambda/sync_api_lambda_arm64.zip"
+$runSmokeScript = Join-Path $PSScriptRoot "run-tst-smoke.ps1"
 
 $callerIdentity = aws sts get-caller-identity --profile $Profile --region $Region | ConvertFrom-Json
 if ($callerIdentity.Account -ne "163649805194") {
@@ -70,5 +72,28 @@ if ($outputs.ContainsKey("ApiBaseUrl")) {
   }
   if ($health.awsMode) {
     Write-Host "Runtime mode: $($health.awsMode)"
+  }
+}
+
+if (-not $SkipSmoke) {
+  $smokeEmail = if ($env:MNEMOSYNE_TST_EMAIL) {
+    $env:MNEMOSYNE_TST_EMAIL
+  } else {
+    [Environment]::GetEnvironmentVariable("MNEMOSYNE_TST_EMAIL", "User")
+  }
+  $smokePassword = if ($env:MNEMOSYNE_TST_PASSWORD) {
+    $env:MNEMOSYNE_TST_PASSWORD
+  } else {
+    [Environment]::GetEnvironmentVariable("MNEMOSYNE_TST_PASSWORD", "User")
+  }
+
+  if ([string]::IsNullOrWhiteSpace($smokeEmail) -or [string]::IsNullOrWhiteSpace($smokePassword)) {
+    Write-Host "Skipping live smoke: MNEMOSYNE_TST_EMAIL / MNEMOSYNE_TST_PASSWORD are not configured." -ForegroundColor DarkYellow
+  } else {
+    Write-Host "Running live smoke verification" -ForegroundColor Cyan
+    & $runSmokeScript -Profile $Profile -Region $Region -StackName $StackName -Email $smokeEmail -Password $smokePassword
+    if ($LASTEXITCODE -ne 0) {
+      throw "Live smoke verification failed after deploy."
+    }
   }
 }

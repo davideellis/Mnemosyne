@@ -9,6 +9,7 @@ Thumbs.db
 .packages
 .pub/
 build/
+coverage/
 
 # Rust
 target/
@@ -16,6 +17,7 @@ target/
 # Go
 bin/
 dist/
+*.out
 
 # IDE
 .idea/

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -219,6 +220,153 @@ func TestPushRejectsMissingSessionToken(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
 	}
 	assertAPIErrorMessage(t, recorder, "sessionToken is required")
+}
+
+func TestPushRejectsUnsupportedChangeKind(t *testing.T) {
+	server := NewServer(sync.NewMemoryStore())
+
+	recorder := httptest.NewRecorder()
+	request := newJSONRequest(t, http.MethodPost, "/v1/sync/push", sync.SyncPushRequest{
+		SessionToken: "session-1",
+		Changes: []sync.SyncChange{
+			{
+				ChangeID:          "change-1",
+				ObjectID:          "note-1",
+				Kind:              "binary",
+				Operation:         "upsert",
+				LogicalTimestamp:  "2026-04-08T18:00:00Z",
+				OriginDeviceID:    "device-1",
+				EncryptedMetadata: "meta",
+				EncryptedPayload:  "payload",
+			},
+		},
+	})
+	server.Routes().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+	assertAPIErrorMessage(t, recorder, "changes[0]: kind must be one of note, settings")
+}
+
+func TestPushRejectsInvalidTimestamp(t *testing.T) {
+	server := NewServer(sync.NewMemoryStore())
+
+	recorder := httptest.NewRecorder()
+	request := newJSONRequest(t, http.MethodPost, "/v1/sync/push", sync.SyncPushRequest{
+		SessionToken: "session-1",
+		Changes: []sync.SyncChange{
+			{
+				ChangeID:          "change-1",
+				ObjectID:          "note-1",
+				Kind:              "note",
+				Operation:         "upsert",
+				LogicalTimestamp:  "yesterday-ish",
+				OriginDeviceID:    "device-1",
+				EncryptedMetadata: "meta",
+				EncryptedPayload:  "payload",
+			},
+		},
+	})
+	server.Routes().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+	assertAPIErrorMessage(t, recorder, "changes[0]: logicalTimestamp must be RFC3339 or RFC3339Nano")
+}
+
+func TestPushRejectsMissingEncryptedPayload(t *testing.T) {
+	server := NewServer(sync.NewMemoryStore())
+
+	recorder := httptest.NewRecorder()
+	request := newJSONRequest(t, http.MethodPost, "/v1/sync/push", sync.SyncPushRequest{
+		SessionToken: "session-1",
+		Changes: []sync.SyncChange{
+			{
+				ChangeID:          "change-1",
+				ObjectID:          "note-1",
+				Kind:              "note",
+				Operation:         "upsert",
+				LogicalTimestamp:  "2026-04-08T18:00:00Z",
+				OriginDeviceID:    "device-1",
+				EncryptedMetadata: "meta",
+			},
+		},
+	})
+	server.Routes().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+	assertAPIErrorMessage(t, recorder, "changes[0]: encryptedPayload is required")
+}
+
+func TestPushRejectsDuplicateChangeIDs(t *testing.T) {
+	server := NewServer(sync.NewMemoryStore())
+
+	recorder := httptest.NewRecorder()
+	request := newJSONRequest(t, http.MethodPost, "/v1/sync/push", sync.SyncPushRequest{
+		SessionToken: "session-1",
+		Changes: []sync.SyncChange{
+			{
+				ChangeID:          "change-1",
+				ObjectID:          "note-1",
+				Kind:              "note",
+				Operation:         "upsert",
+				LogicalTimestamp:  "2026-04-08T18:00:00Z",
+				OriginDeviceID:    "device-1",
+				EncryptedMetadata: "meta",
+				EncryptedPayload:  "payload",
+			},
+			{
+				ChangeID:          "change-1",
+				ObjectID:          "note-2",
+				Kind:              "note",
+				Operation:         "upsert",
+				LogicalTimestamp:  "2026-04-08T18:01:00Z",
+				OriginDeviceID:    "device-1",
+				EncryptedMetadata: "meta-2",
+				EncryptedPayload:  "payload-2",
+			},
+		},
+	})
+	server.Routes().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+	assertAPIErrorMessage(t, recorder, "changes[1]: duplicate changeId \"change-1\"")
+}
+
+func TestPushRejectsExcessiveBatchSize(t *testing.T) {
+	server := NewServer(sync.NewMemoryStore())
+
+	changes := make([]sync.SyncChange, maxSyncPushChanges+1)
+	for index := range changes {
+		changes[index] = sync.SyncChange{
+			ChangeID:          fmt.Sprintf("change-%d", index),
+			ObjectID:          fmt.Sprintf("note-%d", index),
+			Kind:              "note",
+			Operation:         "upsert",
+			LogicalTimestamp:  "2026-04-08T18:00:00Z",
+			OriginDeviceID:    "device-1",
+			EncryptedMetadata: "meta",
+			EncryptedPayload:  "payload",
+		}
+	}
+
+	recorder := httptest.NewRecorder()
+	request := newJSONRequest(t, http.MethodPost, "/v1/sync/push", sync.SyncPushRequest{
+		SessionToken: "session-1",
+		Changes:      changes,
+	})
+	server.Routes().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
+	}
+	assertAPIErrorMessage(t, recorder, "changes may not exceed 256 entries")
 }
 
 func TestRestoreTrashRejectsMissingObjectID(t *testing.T) {

@@ -130,6 +130,7 @@ CloudFormation MVP goals:
 Current test deployment workflow on this machine:
 
 - Use `.\scripts\deploy-tst.ps1` from the repo root
+- By default, `.\scripts\deploy-tst.ps1` also runs the live smoke wrapper when local `MNEMOSYNE_TST_*` credentials are available
 - Use `.\scripts\backup-tst.ps1` from the repo root when you need a local export of the current `tst` metadata and encrypted payload bucket
 - Use `.\scripts\restore-tst-backup.ps1 -BackupPath <path>` to preview a restore plan for a prior backup export
 - Use `.\scripts\check-tst-health.ps1` from the repo root for a combined `/healthz` + alarm-state view of the deployed test stack

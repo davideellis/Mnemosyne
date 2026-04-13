@@ -239,4 +239,113 @@ void main() {
     expect(snapshot.notes.last.objectId, 'older.md');
     expect(snapshot.notes.last.modifiedAt, olderTimestamp);
   });
+
+  test('createNote rejects paths outside the vault or hidden app state',
+      () async {
+    final repository = LocalVaultRepository();
+    final root =
+        await Directory.systemTemp.createTemp('mnemosyne_invalid_create_vault');
+    addTearDown(() async {
+      if (await root.exists()) {
+        await root.delete(recursive: true);
+      }
+    });
+
+    await expectLater(
+      () => repository.createNote(
+        rootPath: root.path,
+        relativePath: '../escape.md',
+        title: 'Escape',
+      ),
+      throwsA(
+        isA<Exception>().having(
+          (error) => error.toString(),
+          'message',
+          contains('valid vault-relative Markdown path'),
+        ),
+      ),
+    );
+
+    await expectLater(
+      () => repository.createNote(
+        rootPath: root.path,
+        relativePath: '.mnemosyne/internal.md',
+        title: 'Hidden',
+      ),
+      throwsA(
+        isA<Exception>().having(
+          (error) => error.toString(),
+          'message',
+          contains('valid vault-relative Markdown path'),
+        ),
+      ),
+    );
+  });
+
+  test('renameNote rejects moves into hidden app state', () async {
+    final repository = LocalVaultRepository();
+    final root =
+        await Directory.systemTemp.createTemp('mnemosyne_invalid_rename_vault');
+    addTearDown(() async {
+      if (await root.exists()) {
+        await root.delete(recursive: true);
+      }
+    });
+
+    final initialSnapshot = await repository.createNote(
+      rootPath: root.path,
+      relativePath: 'Journal/original.md',
+      title: 'Original',
+    );
+
+    await expectLater(
+      () => repository.renameNote(
+        rootPath: root.path,
+        note: initialSnapshot.notes.first,
+        relativePath: '.mnemosyne/trash/hidden.md',
+      ),
+      throwsA(
+        isA<Exception>().having(
+          (error) => error.toString(),
+          'message',
+          contains('valid vault-relative Markdown path'),
+        ),
+      ),
+    );
+  });
+
+  test('applyRemoteChanges ignores paths targeting hidden app state',
+      () async {
+    final repository = LocalVaultRepository();
+    final root =
+        await Directory.systemTemp.createTemp('mnemosyne_hidden_remote_vault');
+    addTearDown(() async {
+      if (await root.exists()) {
+        await root.delete(recursive: true);
+      }
+    });
+
+    final snapshot = await repository.applyRemoteChanges(
+      rootPath: root.path,
+      changes: const <RemoteSyncChange>[
+        RemoteSyncChange(
+          changeId: 'change-hidden',
+          objectId: '.mnemosyne/hidden.md',
+          kind: 'note',
+          operation: 'upsert',
+          relativePath: '.mnemosyne/hidden.md',
+          title: 'Hidden',
+          markdown: '# Hidden',
+          tags: <String>[],
+          wikilinks: <String>[],
+        ),
+      ],
+    );
+
+    expect(snapshot.notes, isEmpty);
+    final hiddenFile = File(
+      '${root.path}${Platform.pathSeparator}.mnemosyne${Platform.pathSeparator}hidden.md',
+    );
+    expect(await hiddenFile.exists(), isFalse);
+  });
 }
