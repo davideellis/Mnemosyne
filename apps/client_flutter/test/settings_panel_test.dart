@@ -81,6 +81,11 @@ void main() {
             currentPlatform: 'windows',
             onSettingsChanged: (settings) => updatedSettings = settings,
             onRevokeDevice: (device) => revokedDevice = device,
+            accountSection: const Card(
+              child: ListTile(
+                title: Text('Sync Account'),
+              ),
+            ),
           ),
         ),
       ),
@@ -96,6 +101,25 @@ void main() {
     await tester.tap(find.byType(Switch).first);
     await tester.pump();
     expect(updatedSettings?.autoSyncEnabled, isFalse);
+
+    await tester.scrollUntilVisible(
+      find.text('Palette'),
+      200,
+      scrollable: find.byType(Scrollable),
+    );
+    await tester.tap(find.byType(DropdownButton<String>).at(1));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('ocean').last);
+    await tester.pumpAndSettle();
+    expect(updatedSettings?.colorPalette, 'ocean');
+
+    await tester.scrollUntilVisible(
+      find.text('Sync & Account'),
+      300,
+      scrollable: find.byType(Scrollable),
+    );
+    expect(find.text('Sync & Account'), findsOneWidget);
+    expect(find.text('Sync Account'), findsOneWidget);
 
     await tester.scrollUntilVisible(
       find.text('journal/daily-note.md'),

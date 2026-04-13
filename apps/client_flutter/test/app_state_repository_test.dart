@@ -13,14 +13,17 @@ void main() {
       email: 'demo@mnemosyne.local',
       knownNoteDigests: <String, String>{'Journal/welcome.md': 'digest-1'},
       knownSettingsDigest:
-          '{"themeMode":"dark","autoSyncEnabled":false,"backlinksEnabled":false,"graphDepth":3}',
+          '{"themeMode":"dark","colorPalette":"ocean","autoSyncEnabled":false,"backlinksEnabled":false,"graphDepth":3}',
       knownTrashDigests: <String, String>{'Journal/trashed.md': 'trash-digest'},
+      lastNoteFolder: 'Journal',
       settings: WorkspaceSettings(
         themeMode: 'dark',
+        colorPalette: 'ocean',
         autoSyncEnabled: false,
         backlinksEnabled: false,
         graphDepth: 3,
       ),
+      showWorkspacePanel: false,
       syncCursor: 'cursor-1',
       vaultRootPath: '/tmp/MnemosyneDemoVault',
       session: SyncSession(
@@ -45,10 +48,13 @@ void main() {
     expect(restored.knownNoteDigests['Journal/welcome.md'], 'digest-1');
     expect(restored.knownSettingsDigest, state.knownSettingsDigest);
     expect(restored.knownTrashDigests['Journal/trashed.md'], 'trash-digest');
+    expect(restored.lastNoteFolder, 'Journal');
     expect(restored.settings.themeMode, 'dark');
+    expect(restored.settings.colorPalette, 'ocean');
     expect(restored.settings.autoSyncEnabled, isFalse);
     expect(restored.settings.backlinksEnabled, isFalse);
     expect(restored.settings.graphDepth, 3);
+    expect(restored.showWorkspacePanel, isFalse);
     expect(restored.syncCursor, state.syncCursor);
     expect(restored.vaultRootPath, state.vaultRootPath);
     expect(restored.session?.sessionToken, state.session?.sessionToken);

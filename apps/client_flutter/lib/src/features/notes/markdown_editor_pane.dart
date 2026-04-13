@@ -16,6 +16,40 @@ class MarkdownEditorPane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final markdownStyle = MarkdownStyleSheet.fromTheme(theme).copyWith(
+      h1: theme.textTheme.headlineMedium?.copyWith(
+        fontWeight: FontWeight.w800,
+      ),
+      h2: theme.textTheme.headlineSmall?.copyWith(
+        fontWeight: FontWeight.w700,
+      ),
+      p: theme.textTheme.bodyLarge?.copyWith(height: 1.6),
+      blockquoteDecoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border(
+          left: BorderSide(
+            color: theme.colorScheme.primary,
+            width: 4,
+          ),
+        ),
+      ),
+      blockquotePadding: const EdgeInsets.all(12),
+      codeblockDecoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      codeblockPadding: const EdgeInsets.all(12),
+      horizontalRuleDecoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      a: theme.textTheme.bodyLarge?.copyWith(
+        color: theme.colorScheme.primary,
+        fontWeight: FontWeight.w600,
+      ),
+    );
 
     return DefaultTabController(
       length: 2,
@@ -58,6 +92,7 @@ class MarkdownEditorPane extends StatelessWidget {
                             : renderableMarkdownForPreview(controller.text),
                         selectable: true,
                         padding: const EdgeInsets.all(16),
+                        styleSheet: markdownStyle,
                         onTapLink: (text, href, title) {
                           if (href == null ||
                               !href.startsWith('mnemosyne://note/')) {

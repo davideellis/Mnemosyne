@@ -59,8 +59,10 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
   Map<String, String> _knownNoteDigests = <String, String>{};
   String? _knownSettingsDigest;
   Map<String, String> _knownTrashDigests = <String, String>{};
+  String? _lastNoteFolder;
   String? _selectedFolderFilter;
   WorkspaceSettings _settings = const WorkspaceSettings();
+  bool _showWorkspacePanel = true;
   String _syncCursor = '';
   String? _syncMessage;
   DateTime? _lastSyncAttemptAt;
@@ -113,7 +115,9 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       _knownSettingsDigest = persistedState.knownSettingsDigest;
       _knownTrashDigests =
           Map<String, String>.from(persistedState.knownTrashDigests);
+      _lastNoteFolder = persistedState.lastNoteFolder;
       _settings = persistedState.settings;
+      _showWorkspacePanel = persistedState.showWorkspacePanel;
       _syncCursor = persistedState.syncCursor ?? '';
       _apiBaseUrlController.text =
           persistedState.apiBaseUrl ?? _apiBaseUrlController.text;
@@ -197,7 +201,10 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
 
     final draft = await showDialog<_NewNoteDraft>(
       context: context,
-      builder: (context) => const _NewNoteDialog(),
+      builder: (context) => _NewNoteDialog(
+        folders: snapshot.folders,
+        lastUsedFolder: _lastNoteFolder ?? _selectedFolderFilter,
+      ),
     );
     if (draft == null) {
       return;
@@ -221,6 +228,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       }
 
       setState(() {
+        _lastNoteFolder = _folderForRelativePath(draft.relativePath);
         _replaceSnapshot(updatedSnapshot, statusLabel: 'Created locally');
         _isCreating = false;
       });
@@ -271,6 +279,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       }
 
       setState(() {
+        _lastNoteFolder = _folderForRelativePath(draft.relativePath);
         _replaceSnapshot(
           updatedSnapshot,
           statusLabel: 'Renamed locally',
@@ -1168,7 +1177,9 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
         knownNoteDigests: _knownNoteDigests,
         knownSettingsDigest: _knownSettingsDigest,
         knownTrashDigests: _knownTrashDigests,
+        lastNoteFolder: _lastNoteFolder,
         settings: _settings,
+        showWorkspacePanel: _showWorkspacePanel,
         syncCursor: _syncCursor,
         vaultRootPath: snapshot?.rootPath,
       ),
@@ -1497,6 +1508,16 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
     _scheduleAutoSync();
   }
 
+  String? _folderForRelativePath(String relativePath) {
+    final normalized = relativePath.replaceAll('\\', '/');
+    final slashIndex = normalized.lastIndexOf('/');
+    if (slashIndex <= 0) {
+      return null;
+    }
+    final folder = normalized.substring(0, slashIndex);
+    return folder.isEmpty ? null : folder;
+  }
+
   List<SyncPushChange> _buildSyncChanges(VaultSnapshot snapshot) {
     final nextDigests = _buildKnownDigests(snapshot);
     final nextTrashDigests = _buildTrashDigests(snapshot);
@@ -1614,21 +1635,32 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       _ => systemBrightness,
     };
     final scheme = ColorScheme.fromSeed(
-      seedColor: const Color(0xFF1C6E5B),
+      seedColor: _paletteSeedColor(_settings.colorPalette),
       brightness: brightness,
     );
+    final isDark = brightness == Brightness.dark;
     return ThemeData(
       colorScheme: scheme,
-      scaffoldBackgroundColor: brightness == Brightness.dark
-          ? const Color(0xFF11161A)
-          : const Color(0xFFF5F2E8),
+      scaffoldBackgroundColor:
+          isDark ? const Color(0xFF11161A) : const Color(0xFFF5F2E8),
       cardTheme: CardThemeData(
-        color: brightness == Brightness.dark
-            ? const Color(0xFF1A2329)
-            : Colors.white,
+        color: isDark ? const Color(0xFF182028) : Colors.white,
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: isDark ? const Color(0xFF182028) : Colors.white,
       ),
       useMaterial3: true,
     );
+  }
+
+  Color _paletteSeedColor(String palette) {
+    return switch (palette) {
+      'ocean' => const Color(0xFF1F6FA3),
+      'amber' => const Color(0xFFB87316),
+      'rose' => const Color(0xFFB14C6D),
+      'slate' => const Color(0xFF5D6B80),
+      _ => const Color(0xFF1C6E5B),
+    };
   }
 
   Widget _buildSidebarPane({
@@ -1735,21 +1767,6 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                 onTap: () => unawaited(_selectTrashedNoteWithGuard(note)),
               ),
           ],
-          const SizedBox(height: 12),
-          OnboardingCard(
-            apiBaseUrlController: _apiBaseUrlController,
-            emailController: _emailController,
-            passwordController: _passwordController,
-            session: _session,
-            syncMessage: _syncMessage,
-            isAuthenticating: _isAuthenticating,
-            onBootstrap: _bootstrapAccount,
-            onLogin: _login,
-            onRecover: _recover,
-            onConsumeApproval: _consumeDeviceApproval,
-            onStartApproval: _startDeviceApproval,
-            onSignOut: _signOut,
-          ),
         ],
       ),
     );
@@ -1779,6 +1796,20 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
       currentPlatform: Platform.operatingSystem,
       onSettingsChanged: _updateSettings,
       onRevokeDevice: _revokeDevice,
+      accountSection: OnboardingCard(
+        apiBaseUrlController: _apiBaseUrlController,
+        emailController: _emailController,
+        passwordController: _passwordController,
+        session: _session,
+        syncMessage: _syncMessage,
+        isAuthenticating: _isAuthenticating,
+        onBootstrap: _bootstrapAccount,
+        onLogin: _login,
+        onRecover: _recover,
+        onConsumeApproval: _consumeDeviceApproval,
+        onStartApproval: _startDeviceApproval,
+        onSignOut: _signOut,
+      ),
     );
   }
 
@@ -1874,6 +1905,7 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                           children: [
                             _TopBar(
                               compact: isNarrowShell,
+                              showWorkspacePanel: _showWorkspacePanel,
                               searchController: _searchController,
                               isCreating: _isCreating,
                               isRenaming: _isRenaming,
@@ -1887,6 +1919,12 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                               onDeleteOrRestore: _selectedNoteIsTrashed
                                   ? _restoreSelectedNote
                                   : _deleteSelectedNote,
+                              onToggleWorkspacePanel: () async {
+                                setState(() {
+                                  _showWorkspacePanel = !_showWorkspacePanel;
+                                });
+                                await _persistState();
+                              },
                               onCommandPalette: _openCommandPalette,
                               onSync: () => _syncVault(),
                             ),
@@ -1899,16 +1937,16 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                     selectedNoteId: selectedNote?.objectId,
                                     selectedNoteIsTrashed:
                                         _selectedNoteIsTrashed,
-                                        backlinksEnabled:
-                                            _settings.backlinksEnabled,
-                                        onSelect: (note) {
-                                          unawaited(_selectNoteWithGuard(note));
-                                        },
-                                        onSelectTrash: (note) {
-                                          unawaited(
-                                              _selectTrashedNoteWithGuard(note));
-                                        },
-                                      );
+                                    backlinksEnabled:
+                                        _settings.backlinksEnabled,
+                                    onSelect: (note) {
+                                      unawaited(_selectNoteWithGuard(note));
+                                    },
+                                    onSelectTrash: (note) {
+                                      unawaited(
+                                          _selectTrashedNoteWithGuard(note));
+                                    },
+                                  );
                                   final editorPane = _EditorPane(
                                     note: selectedNote,
                                     isTrashed: _selectedNoteIsTrashed,
@@ -1919,25 +1957,26 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                   );
 
                                   if (isNarrowShell) {
+                                    final tabChildren = <Widget>[
+                                      notesPane,
+                                      editorPane,
+                                      if (_showWorkspacePanel) settingsPane,
+                                    ];
                                     return DefaultTabController(
-                                      length: 3,
+                                      length: tabChildren.length,
                                       child: Column(
                                         children: [
-                                          const TabBar(
+                                          TabBar(
                                             tabs: [
-                                              Tab(text: 'Notes'),
-                                              Tab(text: 'Editor'),
-                                              Tab(text: 'Settings'),
+                                              const Tab(text: 'Notes'),
+                                              const Tab(text: 'Editor'),
+                                              if (_showWorkspacePanel)
+                                                const Tab(text: 'Settings'),
                                             ],
                                           ),
                                           Expanded(
                                             child: TabBarView(
-                                              children: [
-                                                notesPane,
-                                                editorPane,
-                                                settingsPane,
-                                              ],
-                                            ),
+                                                children: tabChildren),
                                           ),
                                         ],
                                       ),
@@ -1951,9 +1990,13 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                         Expanded(child: notesPane),
                                         const Divider(height: 1),
                                         Expanded(child: editorPane),
-                                        const Divider(height: 1),
-                                        SizedBox(
-                                            height: 320, child: settingsPane),
+                                        if (_showWorkspacePanel) ...[
+                                          const Divider(height: 1),
+                                          SizedBox(
+                                            height: 320,
+                                            child: settingsPane,
+                                          ),
+                                        ],
                                       ],
                                     );
                                   }
@@ -1962,7 +2005,9 @@ class _NotesWorkspacePageState extends State<NotesWorkspacePage> {
                                     children: [
                                       SizedBox(width: 320, child: notesPane),
                                       Expanded(child: editorPane),
-                                      SizedBox(width: 320, child: settingsPane),
+                                      if (_showWorkspacePanel)
+                                        SizedBox(
+                                            width: 320, child: settingsPane),
                                     ],
                                   );
                                 },
@@ -2041,7 +2086,13 @@ class _RenameNoteDraft {
 }
 
 class _NewNoteDialog extends StatefulWidget {
-  const _NewNoteDialog();
+  const _NewNoteDialog({
+    required this.folders,
+    this.lastUsedFolder,
+  });
+
+  final List<String> folders;
+  final String? lastUsedFolder;
 
   @override
   State<_NewNoteDialog> createState() => _NewNoteDialogState();
@@ -2049,17 +2100,63 @@ class _NewNoteDialog extends StatefulWidget {
 
 class _NewNoteDialogState extends State<_NewNoteDialog> {
   final TextEditingController _titleController = TextEditingController();
-  final TextEditingController _pathController = TextEditingController();
+  final TextEditingController _fileNameController = TextEditingController();
+  late String _selectedFolder;
+  bool _didEditFileName = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final normalizedFolders = widget.folders.toSet().toList()..sort();
+    final preferredFolder = widget.lastUsedFolder;
+    _selectedFolder =
+        preferredFolder != null && normalizedFolders.contains(preferredFolder)
+            ? preferredFolder
+            : '';
+    _titleController.addListener(_syncFileNameFromTitle);
+  }
 
   @override
   void dispose() {
     _titleController.dispose();
-    _pathController.dispose();
+    _fileNameController.dispose();
     super.dispose();
+  }
+
+  void _syncFileNameFromTitle() {
+    if (_didEditFileName) {
+      return;
+    }
+    final slug = _slugify(_titleController.text);
+    if (_fileNameController.text != slug) {
+      _fileNameController.text = slug;
+    }
+  }
+
+  String _slugify(String value) {
+    final normalized = value
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'-{2,}'), '-')
+        .replaceAll(RegExp(r'^-|-$'), '');
+    return normalized;
   }
 
   @override
   Widget build(BuildContext context) {
+    final folderOptions = <DropdownMenuItem<String>>[
+      const DropdownMenuItem<String>(
+        value: '',
+        child: Text('Vault root'),
+      ),
+      for (final folder in widget.folders.toSet().toList()..sort())
+        DropdownMenuItem<String>(
+          value: folder,
+          child: Text(folder),
+        ),
+    ];
+
     return AlertDialog(
       title: const Text('Create note'),
       content: Column(
@@ -2073,13 +2170,28 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
             ),
           ),
           const SizedBox(height: 12),
-          TextField(
-            controller: _pathController,
+          DropdownButtonFormField<String>(
+            initialValue: _selectedFolder,
             decoration: const InputDecoration(
-              labelText: 'Vault path',
-              hintText: 'Journal/new-note.md',
+              labelText: 'Folder',
               border: OutlineInputBorder(),
             ),
+            items: folderOptions,
+            onChanged: (value) {
+              setState(() {
+                _selectedFolder = value ?? '';
+              });
+            },
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _fileNameController,
+            decoration: const InputDecoration(
+              labelText: 'File name',
+              hintText: 'new-note',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (_) => _didEditFileName = true,
           ),
         ],
       ),
@@ -2091,10 +2203,14 @@ class _NewNoteDialogState extends State<_NewNoteDialog> {
         FilledButton(
           onPressed: () {
             final title = _titleController.text.trim();
-            final relativePath = _pathController.text.trim();
-            if (title.isEmpty || relativePath.isEmpty) {
+            final fileName = _slugify(_fileNameController.text);
+            if (title.isEmpty || fileName.isEmpty) {
               return;
             }
+            final filePath = '$fileName.md';
+            final relativePath = _selectedFolder.isEmpty
+                ? filePath
+                : '$_selectedFolder/$filePath';
             Navigator.of(context).pop(
               _NewNoteDraft(title: title, relativePath: relativePath),
             );
@@ -2309,6 +2425,7 @@ class _ApprovalCodeEntryDialogState extends State<_ApprovalCodeEntryDialog> {
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.compact,
+    required this.showWorkspacePanel,
     required this.searchController,
     required this.isCreating,
     required this.isRenaming,
@@ -2320,11 +2437,13 @@ class _TopBar extends StatelessWidget {
     required this.onRename,
     required this.onSave,
     required this.onDeleteOrRestore,
+    required this.onToggleWorkspacePanel,
     required this.onCommandPalette,
     required this.onSync,
   });
 
   final bool compact;
+  final bool showWorkspacePanel;
   final TextEditingController searchController;
   final bool isCreating;
   final bool isRenaming;
@@ -2336,6 +2455,7 @@ class _TopBar extends StatelessWidget {
   final VoidCallback onRename;
   final VoidCallback onSave;
   final VoidCallback onDeleteOrRestore;
+  final VoidCallback onToggleWorkspacePanel;
   final VoidCallback onCommandPalette;
   final VoidCallback onSync;
 
@@ -2376,6 +2496,15 @@ class _TopBar extends StatelessWidget {
         onPressed: onCommandPalette,
         icon: const Icon(Icons.keyboard_command_key),
         label: const Text('Command'),
+      ),
+      FilledButton.tonalIcon(
+        onPressed: onToggleWorkspacePanel,
+        icon: Icon(
+          showWorkspacePanel
+              ? Icons.chevron_right_outlined
+              : Icons.chevron_left_outlined,
+        ),
+        label: Text(showWorkspacePanel ? 'Hide panel' : 'Show panel'),
       ),
       FilledButton.tonalIcon(
         onPressed: isSyncing ? null : onSync,
@@ -2626,10 +2755,15 @@ class _NoteCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final backgroundColor = isSelected
+        ? (trashed
+            ? theme.colorScheme.errorContainer
+            : theme.colorScheme.secondaryContainer)
+        : theme.cardTheme.color ?? theme.colorScheme.surface;
+
     return Card(
-      color: isSelected
-          ? (trashed ? const Color(0xFFF7E7D8) : const Color(0xFFE9F5EE))
-          : const Color(0xFFFFFBF2),
+      color: backgroundColor,
       child: ListTile(
         onTap: onTap,
         title: Text(note.title),
@@ -2706,10 +2840,10 @@ class _EditorPane extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.all(24),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         border: Border(
-          left: BorderSide(color: Color(0xFFD7D0C1)),
-          right: BorderSide(color: Color(0xFFD7D0C1)),
+          left: BorderSide(color: theme.colorScheme.outlineVariant),
+          right: BorderSide(color: theme.colorScheme.outlineVariant),
         ),
       ),
       child: note == null

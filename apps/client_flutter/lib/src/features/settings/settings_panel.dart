@@ -26,6 +26,7 @@ class SettingsPanel extends StatelessWidget {
     required this.currentPlatform,
     required this.onSettingsChanged,
     required this.onRevokeDevice,
+    this.accountSection,
     super.key,
   });
 
@@ -47,6 +48,7 @@ class SettingsPanel extends StatelessWidget {
   final String currentPlatform;
   final ValueChanged<WorkspaceSettings> onSettingsChanged;
   final ValueChanged<RegisteredDevice> onRevokeDevice;
+  final Widget? accountSection;
 
   @override
   Widget build(BuildContext context) {
@@ -77,6 +79,16 @@ class SettingsPanel extends StatelessWidget {
             options: const <String>['system', 'light', 'dark'],
             onChanged: (value) => onSettingsChanged(
               settings.copyWith(themeMode: value),
+            ),
+          ),
+          _ChoiceTile(
+            title: 'Palette',
+            subtitle: settings.colorPalette,
+            icon: Icons.color_lens_outlined,
+            value: settings.colorPalette,
+            options: const <String>['emerald', 'ocean', 'amber', 'rose', 'slate'],
+            onChanged: (value) => onSettingsChanged(
+              settings.copyWith(colorPalette: value),
             ),
           ),
           _ToggleTile(
@@ -195,6 +207,17 @@ class SettingsPanel extends StatelessWidget {
                 ],
               ),
             ),
+          if (accountSection != null) ...[
+            const SizedBox(height: 24),
+            Text(
+              'Sync & Account',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 12),
+            accountSection!,
+          ],
           if (note != null) ...[
             const SizedBox(height: 24),
             Text(
@@ -317,6 +340,10 @@ class _GraphCard extends StatelessWidget {
                 painter: _GraphPainter(
                   centerLabel: selectedNote.title,
                   nodeLabels: linkedTitles,
+                  centerColor: Theme.of(context).colorScheme.primary,
+                  nodeColor: Theme.of(context).colorScheme.secondaryContainer,
+                  edgeColor: Theme.of(context).colorScheme.outline,
+                  textColor: Theme.of(context).colorScheme.onSurface,
                 ),
                 child: const SizedBox.expand(),
               ),
@@ -478,19 +505,27 @@ class _GraphPainter extends CustomPainter {
   const _GraphPainter({
     required this.centerLabel,
     required this.nodeLabels,
+    required this.centerColor,
+    required this.nodeColor,
+    required this.edgeColor,
+    required this.textColor,
   });
 
   final String centerLabel;
   final List<String> nodeLabels;
+  final Color centerColor;
+  final Color nodeColor;
+  final Color edgeColor;
+  final Color textColor;
 
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final edgePaint = Paint()
-      ..color = const Color(0xFF8C7E66)
+      ..color = edgeColor
       ..strokeWidth = 1.5;
-    final centerPaint = Paint()..color = const Color(0xFF1F6B52);
-    final nodePaint = Paint()..color = const Color(0xFFD4B483);
+    final centerPaint = Paint()..color = centerColor;
+    final nodePaint = Paint()..color = nodeColor;
     final textPainter = TextPainter(
       textAlign: TextAlign.center,
       textDirection: TextDirection.ltr,
@@ -506,7 +541,13 @@ class _GraphPainter extends CustomPainter {
       );
       canvas.drawLine(center, nodeCenter, edgePaint);
       canvas.drawCircle(nodeCenter, 18, nodePaint);
-      _paintLabel(canvas, textPainter, nodeLabels[index], nodeCenter);
+      _paintLabel(
+        canvas,
+        textPainter,
+        nodeLabels[index],
+        nodeCenter,
+        textColor: textColor,
+      );
     }
 
     canvas.drawCircle(center, 24, centerPaint);
@@ -542,6 +583,10 @@ class _GraphPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _GraphPainter oldDelegate) {
     return centerLabel != oldDelegate.centerLabel ||
-        nodeLabels.join('|') != oldDelegate.nodeLabels.join('|');
+        nodeLabels.join('|') != oldDelegate.nodeLabels.join('|') ||
+        centerColor != oldDelegate.centerColor ||
+        nodeColor != oldDelegate.nodeColor ||
+        edgeColor != oldDelegate.edgeColor ||
+        textColor != oldDelegate.textColor;
   }
 }
